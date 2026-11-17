@@ -138,11 +138,16 @@ function CasesWorkspace() {
         priority: filters.priority,
         type: filters.type,
         automation_status: filters.automation_status,
+        fields: filters.fields,
       }),
     enabled: !!suiteId,
     placeholderData: (prev) => prev,
   });
   const { data: tags = [] } = useQuery({ queryKey: ["tags", projectId], queryFn: () => api.tags(projectId) });
+  const { data: fieldOptions = [] } = useQuery({
+    queryKey: ["custom-fields", projectId],
+    queryFn: () => api.customFields(projectId),
+  });
 
   // Group cases by section in tree order. Without filters show every section in scope
   // (so empty sections are visible drop targets); with filters only sections with hits.
@@ -191,6 +196,8 @@ function CasesWorkspace() {
     qc.invalidateQueries({ queryKey: ["sections"] });
     qc.invalidateQueries({ queryKey: ["suites", projectId] });
     qc.invalidateQueries({ queryKey: ["projects"] });
+    qc.invalidateQueries({ queryKey: ["custom-fields", projectId] });
+    qc.invalidateQueries({ queryKey: ["tags", projectId] });
   };
   const fail = (e: unknown) => toast.error(e instanceof ApiError ? e.message : "Something went wrong");
 
@@ -397,7 +404,7 @@ function CasesWorkspace() {
                 </Button>
               </div>
             </div>
-            <FilterBar value={filters} onChange={setFilters} tags={tags} />
+            <FilterBar value={filters} onChange={setFilters} tags={tags} fields={fieldOptions} />
             {selectedIds.length > 0 && (
               <div className="flex items-center gap-2 rounded-md bg-primary/5 px-3 py-1.5 text-sm">
                 <span className="font-medium">{selectedIds.length} selected</span>

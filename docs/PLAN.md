@@ -236,3 +236,16 @@ An admin cannot demote or deactivate themselves. The system always keeps at leas
 - **Delimiters.** Semicolon and tab delimited CSV files are detected.
 - **Automation status.** When a BrowserStack file has both `Automation Status` and `Automation Status (custom)`, the standard column is used.
 - **Test data.** The test fixture is a synthetic file in the same shape as a BrowserStack export. Real exports contain employee names and internal links, so they shouldn't be committed.
+
+## Phase 9: custom fields
+
+- **Model.** Cases have free-form custom fields, stored as JSONB in display order: `[{name, value}]`, with a GIN index. Names are unique per case (case-insensitive). Empty values are dropped.
+  - Fields are not defined per project. That is enough for imported metadata (Owner, State, Sprint, Created At…).
+  - Typed, project-level field definitions (required fields, dropdowns) could be added later.
+- **Import.** CSV columns with data but no built-in field become custom fields.
+  - The import dialog runs a dry run (`dry_run=true`) and shows them as checkboxes.
+  - Tool-internal columns are unchecked by default: Folder ID, Template Type, Template Name, Project Name, Test Case URL.
+  - Re-importing merges fields: imported fields replace fields with the same name, and fields added by hand are kept.
+- **Export.** CSV export adds one column per field name, so an export can be imported back without losing fields.
+- **Filtering.** API: `?field=Name=Value`, repeatable. Several values for one name match any of them; different names must all match. UI: the "Fields" filter.
+- **Dates.** Dates from other tools (Created At…) are stored as text exactly as exported. They are not converted into TestHarbor's own timestamps.

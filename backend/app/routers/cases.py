@@ -1,12 +1,12 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.models import AutomationStatus, CaseType, Priority, Project, Section, Suite, TestCase
-from app.schemas import CaseFilter, CaseIn, CaseList, CaseMoveIn, CaseOut, CasePatch
+from app.schemas import CaseFilter, CaseIn, CaseList, CaseMoveIn, CaseOut, CasePatch, FieldValues
 from app.services import (
     commit_or_409,
     filtered_cases_query,
@@ -36,7 +36,16 @@ def case_filter_params(
     priority: Annotated[list[str] | None, Query()] = None,
     type: Annotated[list[str] | None, Query()] = None,
     automation_status: Annotated[list[str] | None, Query()] = None,
+    field: Annotated[
+        list[str] | None, Query(description='Custom field filter "Name=Value"; repeat for more')
+    ] = None,
 ) -> CaseFilter:
+    fields: dict[str, list[str]] = {}
+    for item in field or []:
+        name, sep, value = item.partition("=")
+        if not sep or not name.strip():
+            raise HTTPException(422, f"field filter must look like Name=Value, got {item!r}")
+        fields.setdefault(" ".join(name.split()), []).append(value.strip())
     try:
         return CaseFilter(
             suite_id=suite_id,
@@ -47,6 +56,7 @@ def case_filter_params(
             priority=[Priority(p) for p in _split(priority)],
             type=[CaseType(t) for t in _split(type)],
             automation_status=[AutomationStatus(a) for a in _split(automation_status)],
+            fields=fields,
         )
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
@@ -69,6 +79,25 @@ async def list_cases(
         .offset(offset)
     )
     return CaseList(items=[CaseOut.model_validate(c) for c in rows], total=total or 0)
+
+
+@router.get("/projects/{project_id}/custom-fields", response_model=list[FieldValues])
+async def list_custom_fields(project_id: int, session: Session) -> list[FieldValues]:
+    """Custom field names used in the project with their distinct values (for filters/autocomplete)."""
+    rows = await session.execute(
+        text(
+            "SELECT f->>'name' AS name, f->>'value' AS value FROM test_cases, "
+            "jsonb_array_elements(custom_fields) AS f WHERE project_id = :p "
+            "GROUP BY 1, 2 ORDER BY 1, 2"
+        ),
+        {"p": project_id},
+    )
+    out: dict[str, list[str]] = {}
+    for name, value in rows:
+        values = out.setdefault(name, [])
+        if len(values) < 300:
+            values.append(value)
+    return [FieldValues(name=n, values=v) for n, v in out.items()]
 
 
 @router.get("/projects/{project_id}/tags", response_model=list[str])

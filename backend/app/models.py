@@ -169,6 +169,7 @@ class TestCase(Base):
         Index("ix_test_cases_tags", "tags", postgresql_using="gin"),
         Index("ix_test_cases_section_position", "section_id", "position"),
         Index("ix_test_cases_suite_external_id", "suite_id", "external_id"),
+        Index("ix_test_cases_custom_fields", "custom_fields", postgresql_using="gin"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -201,6 +202,10 @@ class TestCase(Base):
     # Id in the tool the case was imported from (e.g. "TC-770" from BrowserStack); re-imports
     # update the case instead of duplicating it.
     external_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Free-form extra fields, in display order: [{"name": "Sprint", "value": "Sprint 125"}, ...]
+    custom_fields: Mapped[list[dict[str, str]]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
     position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _updated()

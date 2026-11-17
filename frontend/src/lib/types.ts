@@ -60,6 +60,16 @@ export interface Section {
   case_count: number;
 }
 
+export interface CustomField {
+  name: string;
+  value: string;
+}
+
+export interface FieldValues {
+  name: string;
+  values: string[];
+}
+
 export interface Step {
   action: string;
   expected: string;
@@ -81,6 +91,7 @@ export interface TestCase {
   automation_status: AutomationStatus;
   automation_key: string | null;
   external_id: string | null;
+  custom_fields: CustomField[];
   position: number;
   created_at: string;
   updated_at: string;
@@ -104,6 +115,8 @@ export interface CaseFilter {
   priority?: Priority[];
   type?: CaseType[];
   automation_status?: AutomationStatus[];
+  /** Custom field name -> accepted values. */
+  fields?: Record<string, string[]>;
 }
 
 export interface ImportResult {
@@ -113,13 +126,18 @@ export interface ImportResult {
   errors: string[];
   warnings: string[];
   ignored_columns: string[];
+  extra_columns: { name: string; selected: boolean }[];
   section_id: number | null;
+  dry_run: boolean;
 }
 
 export interface ImportTarget {
   section_id?: number;
   new_section?: string;
   keep_paths: boolean;
+  /** Extra columns to keep as custom fields; undefined = server default. */
+  columns?: string[];
+  dry_run?: boolean;
 }
 
 export interface RunStats {

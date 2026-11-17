@@ -43,12 +43,22 @@ ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+# Tool-internal columns that are not worth keeping as custom fields by default.
+NOISE_COLUMNS = {"folder_id", "template_type", "template_name", "project_name", "test_case_url",
+                 "ai_prompt", "project", "suite", "suite_id", "section_id", "section_description"}
+
+
 @dataclass
 class ParsedCsv:
     rows: list[dict[str, Any]]
     own_format: bool  # exported by TestHarbor: `id` is a TestHarbor case id
-    ignored_columns: list[str] = field(default_factory=list)
+    # Columns with data but no built-in field: (header, imported as custom field?)
+    extra_columns: list[tuple[str, bool]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+
+    @property
+    def ignored_columns(self) -> list[str]:
+        return [name for name, selected in self.extra_columns if not selected]
 
 
 # --- Text helpers ----------------------------------------------------------------------
@@ -162,8 +172,12 @@ def _delimiter(text: str) -> str:
     return max((",", ";", "\t"), key=header.count)
 
 
-def parse_csv(text: str) -> ParsedCsv:
-    """Rows as dicts with TestHarbor field names (values still strings/lists, unvalidated)."""
+def parse_csv(text: str, columns: set[str] | None = None) -> ParsedCsv:
+    """Rows as dicts with TestHarbor field names (values still strings/lists, unvalidated).
+
+    Columns that have data but no built-in field become custom fields: the ones named in
+    `columns` (matched case-insensitively), or by default all except tool-internal noise.
+    """
     reader = csv.reader(io.StringIO(text), delimiter=_delimiter(text))
     try:
         headers = next(reader)
@@ -188,9 +202,15 @@ def parse_csv(text: str) -> ParsedCsv:
     # Keep the record number (header = 1) for messages; skip blank rows.
     raw_rows = [(n, r) for n, r in enumerate(reader, start=2) if any(c.strip() for c in r)]
     used = set(column.values())
-    ignored = [
-        headers[i] for i in range(len(headers))
+    extra_idx = [
+        i for i in range(len(headers))
         if i not in used and headers[i].strip() and any(i < len(r) and r[i].strip() for _, r in raw_rows)
+    ]
+    wanted = {c.strip().lower() for c in columns} if columns is not None else None
+    extra = [
+        (i, headers[i].strip(),
+         headers[i].strip().lower() in wanted if wanted is not None else normalized[i] not in NOISE_COLUMNS)
+        for i in extra_idx
     ]
 
     def cell(r: list[str], fld: str) -> str:
@@ -214,6 +234,10 @@ def parse_csv(text: str) -> ParsedCsv:
             "expected_result": unwrap(cell(r, "expected_result")),
             "tags": [t for t in re.split(r"[,;]", cell(r, "tags"))],
             "automation_key": cell(r, "automation_key"),
+            "custom_fields": [
+                {"name": name, "value": unwrap(r[i]) if i < len(r) else ""}
+                for i, name, selected in extra if selected and i < len(r) and r[i].strip()
+            ],
         }
         for fld, mapper in (("priority", map_priority), ("type", map_type),
                             ("automation_status", map_automation)):
@@ -223,4 +247,5 @@ def parse_csv(text: str) -> ParsedCsv:
                 if warning:
                     warnings.append(f"row {n}: {warning}")
         rows.append(row)
-    return ParsedCsv(rows=rows, own_format=own_format, ignored_columns=ignored, warnings=warnings)
+    return ParsedCsv(rows=rows, own_format=own_format, warnings=warnings,
+                     extra_columns=[(name, selected) for _, name, selected in extra])

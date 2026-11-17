@@ -142,6 +142,11 @@ async def filtered_cases_query(
         stmt = stmt.where(TestCase.type.in_(f.type))
     if f.automation_status:
         stmt = stmt.where(TestCase.automation_status.in_(f.automation_status))
+    for name, values in f.fields.items():
+        if values:
+            stmt = stmt.where(or_(*[
+                TestCase.custom_fields.contains([{"name": name, "value": v}]) for v in values
+            ]))
     return stmt
 
 

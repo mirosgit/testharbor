@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -54,11 +54,48 @@ export function ImportDialog({
   const [keepPaths, setKeepPaths] = useState(true);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [preview, setPreview] = useState<ImportResult | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [columns, setColumns] = useState<Set<string> | null>(null); // null = server default
+
+  const targetFor = (dry: boolean) => {
+    const name = (newName || (file ? baseName(file.name) : "")).trim();
+    const base = target === NEW ? { new_section: name } : { section_id: Number(target) };
+    return { ...base, keep_paths: keepPaths, dry_run: dry, columns: columns ? [...columns] : undefined };
+  };
+
+  // Dry run whenever the file or target changes: shows counts and the extra columns.
+  useEffect(() => {
+    if (!file || result) return;
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const p = await api.importCases(suiteId, file, { ...targetFor(true), columns: undefined });
+        if (cancelled) return;
+        setPreview(p);
+        setPreviewError(null);
+        setColumns((prev) => prev ?? new Set(p.extra_columns.filter((c) => c.selected).map((c) => c.name)));
+      } catch (e) {
+        if (!cancelled) {
+          setPreview(null);
+          setPreviewError(e instanceof ApiError ? e.message : "Can't read the file");
+        }
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file, target, newName, keepPaths]);
 
   const reset = (o: boolean) => {
     if (!o) {
       setFile(null);
       setResult(null);
+      setPreview(null);
+      setPreviewError(null);
+      setColumns(null);
       setNewName("");
       setKeepPaths(true);
     } else {
@@ -73,11 +110,7 @@ export function ImportDialog({
     if (target === NEW && !name) return toast.error("Enter a section name");
     setBusy(true);
     try {
-      const r = await api.importCases(
-        suiteId,
-        file,
-        target === NEW ? { new_section: name, keep_paths: keepPaths } : { section_id: Number(target), keep_paths: keepPaths },
-      );
+      const r = await api.importCases(suiteId, file, targetFor(false));
       setResult(r);
       onImported(r);
     } catch (e) {
@@ -120,9 +153,14 @@ export function ImportDialog({
             <Input
               type="file"
               accept=".csv,.json,text/csv,application/json"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                setFile(e.target.files?.[0] ?? null);
+                setPreview(null);
+                setColumns(null);
+              }}
               aria-label="File to import"
             />
+            {previewError && <p className="text-sm text-destructive">{previewError}</p>}
             <div className="grid gap-2">
               <Label>Import into</Label>
               <Select value={target} onValueChange={setTarget}>
@@ -162,6 +200,41 @@ export function ImportDialog({
                 </span>
               </span>
             </label>
+            {preview && (
+              <div className="grid gap-2 rounded-md border bg-muted/30 p-3 text-sm" data-testid="import-preview">
+                <p>
+                  Will create <b>{preview.created}</b>, update <b>{preview.updated}</b>
+                  {preview.sections_created > 0 && <>, add <b>{preview.sections_created}</b> sections</>}
+                  {preview.errors.length > 0 && <>, skip <b className="text-destructive">{preview.errors.length}</b> rows</>}.
+                </p>
+                {preview.extra_columns.length > 0 && columns && (
+                  <div className="grid gap-1.5">
+                    <p className="text-xs text-muted-foreground">
+                      Extra columns, kept as custom fields on each case:
+                    </p>
+                    <div className="grid max-h-44 grid-cols-2 gap-x-3 gap-y-1 overflow-y-auto">
+                      {preview.extra_columns.map((c) => (
+                        <label key={c.name} className="flex min-w-0 items-center gap-2 text-xs">
+                          <Checkbox
+                            checked={columns.has(c.name)}
+                            onCheckedChange={(v) =>
+                              setColumns((prev) => {
+                                const n = new Set(prev);
+                                if (v === true) n.add(c.name);
+                                else n.delete(c.name);
+                                return n;
+                              })
+                            }
+                            aria-label={`Import column ${c.name}`}
+                          />
+                          <span className="truncate">{c.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
         <DialogFooter>

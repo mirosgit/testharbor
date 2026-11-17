@@ -37,6 +37,7 @@ import {
   type TestCase,
 } from "@/lib/types";
 
+import { CustomFieldsEditor, CustomFieldsView } from "./custom-fields";
 import { StepsEditor } from "./steps-editor";
 import { TagInput } from "./tag-input";
 
@@ -53,6 +54,7 @@ const emptyCase = (sectionId: number): CaseInput => ({
   tags: [],
   automation_status: "manual",
   automation_key: null,
+  custom_fields: [],
 });
 
 const toInput = (c: TestCase): CaseInput => ({
@@ -66,6 +68,7 @@ const toInput = (c: TestCase): CaseInput => ({
   tags: c.tags,
   automation_status: c.automation_status,
   automation_key: c.automation_key,
+  custom_fields: c.custom_fields,
 });
 
 export function CaseSheet({
@@ -242,6 +245,12 @@ function CaseView({
           )}
         </dl>
 
+        {c.custom_fields.length > 0 && (
+          <Block title="Fields">
+            <CustomFieldsView fields={c.custom_fields} />
+          </Block>
+        )}
+
         {c.preconditions.trim() && (
           <Block title="Preconditions">
             <Markdown>{c.preconditions}</Markdown>
@@ -330,11 +339,19 @@ function CaseForm({
     queryKey: ["tags", projectId],
     queryFn: () => api.tags(projectId),
   });
+  const { data: knownFields = [] } = useQuery({
+    queryKey: ["custom-fields", projectId],
+    queryFn: () => api.customFields(projectId),
+  });
   const set = <K extends keyof CaseInput>(k: K, val: CaseInput[K]) => setV((p) => ({ ...p, [k]: val }));
 
   const save = useMutation({
     mutationFn: () => {
-      const body = { ...v, steps: v.steps.filter((s) => s.action.trim() || s.expected.trim()) };
+      const body = {
+        ...v,
+        steps: v.steps.filter((s) => s.action.trim() || s.expected.trim()),
+        custom_fields: v.custom_fields.filter((f) => f.name.trim() && f.value.trim()),
+      };
       return caseId ? api.updateCase(caseId, body) : api.createCase(body);
     },
     onSuccess: (saved) => {
@@ -343,6 +360,7 @@ function CaseForm({
       qc.invalidateQueries({ queryKey: ["cases"] });
       qc.invalidateQueries({ queryKey: ["sections"] });
       qc.invalidateQueries({ queryKey: ["tags", projectId] });
+      qc.invalidateQueries({ queryKey: ["custom-fields", projectId] });
       onSaved(saved);
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : "Save failed"),
@@ -474,6 +492,10 @@ function CaseForm({
 
         <Field label="Expected result" htmlFor="case-expected">
           <MarkdownField id="case-expected" value={v.expected_result} onChange={(x) => set("expected_result", x)} />
+        </Field>
+
+        <Field label="Fields">
+          <CustomFieldsEditor value={v.custom_fields} onChange={(f) => set("custom_fields", f)} known={knownFields} />
         </Field>
       </div>
 

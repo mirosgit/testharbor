@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.case_import import parse_csv, steps_to_text, text_to_steps  # noqa: F401 (re-exported)
 from app.db import get_session
 from app.models import Section, Suite, TestCase
-from app.schemas import CaseFields, ImportResult
+from app.schemas import CaseFields, ExtraColumn, ImportResult
 from app.services import CASE_REF, get_or_404, section_paths, suite_sections, tree_order
 
 router = APIRouter(prefix="/api", tags=["import/export"])
@@ -69,6 +69,7 @@ async def _export_rows(session: AsyncSession, suite: Suite) -> list[dict[str, An
             "tags": c.tags,
             "automation_status": c.automation_status.value,
             "automation_key": c.automation_key,
+            "custom_fields": c.custom_fields,
         }
         for c in cases
     ]
@@ -94,13 +95,21 @@ async def export_suite(
         }
         body, media = json.dumps(payload, indent=2, ensure_ascii=False), "application/json"
     else:
+        # Custom fields become extra columns (first-seen order) after the built-in ones.
+        extra: dict[str, None] = {}
+        for r in rows:
+            for f in r["custom_fields"]:
+                if f["name"] not in CSV_COLUMNS:
+                    extra.setdefault(f["name"], None)
         buf = io.StringIO()
-        writer = csv.DictWriter(buf, fieldnames=CSV_COLUMNS)
+        writer = csv.DictWriter(buf, fieldnames=CSV_COLUMNS + list(extra))
         writer.writeheader()
         for r in rows:
+            values = {f["name"]: f["value"] for f in r.pop("custom_fields")}
             writer.writerow(
                 r | {"steps": steps_to_text(r["steps"]), "tags": ", ".join(r["tags"]),
                      "automation_key": r["automation_key"] or "", "external_id": r["external_id"] or ""}
+                | {name: values.get(name, "") for name in extra}
             )
         body, media = buf.getvalue(), "text/csv; charset=utf-8"
     return Response(
@@ -170,6 +179,8 @@ async def import_suite(
     section_id: Annotated[int | None, Query(description="Import into this existing section")] = None,
     new_section: Annotated[str | None, Query(max_length=200, description="Import into a top-level section with this name (created if missing)")] = None,
     keep_paths: Annotated[bool, Query(description="Recreate the file's folders (section_path / Folder Path) inside the target")] = True,
+    columns: Annotated[list[str] | None, Query(description="CSV: extra columns to keep as custom fields (default: all but tool-internal ones; pass an empty value for none)")] = None,
+    dry_run: Annotated[bool, Query(description="Analyse the file and report what would happen, without saving")] = False,
 ) -> ImportResult:
     """Import cases from CSV (TestHarbor, BrowserStack or TestRail export) or JSON.
 
@@ -184,16 +195,17 @@ async def import_suite(
     fmt = format or ("json" if (file.filename or "").lower().endswith(".json")
                      or text.lstrip().startswith(("{", "[")) else "csv")
 
-    result = ImportResult()
+    result = ImportResult(dry_run=dry_run)
     if fmt == "json":
         rows, own_format = _parse_json(text), True
     else:
         try:
-            parsed = parse_csv(text)
+            parsed = parse_csv(text, {c for c in columns if c.strip()} if columns is not None else None)
         except (ValueError, csv.Error) as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Can't read CSV: {e}") from e
         rows, own_format = parsed.rows, parsed.own_format
         result.ignored_columns, result.warnings = parsed.ignored_columns, parsed.warnings
+        result.extra_columns = [ExtraColumn(name=n, selected=s) for n, s in parsed.extra_columns]
 
     sections = await suite_sections(session, suite.id)
     tree = _Tree(session, suite.id, sections, result)
@@ -257,7 +269,13 @@ async def import_suite(
         if case is not None:
             if case.automation_key and "automation_key" in data.model_fields_set:
                 keys.pop(case.automation_key, None)
-            for k, v in data.model_dump(mode="json", exclude_unset=True).items():
+            values = data.model_dump(mode="json", exclude_unset=True)
+            if "custom_fields" in values:
+                # Merge: imported fields replace same-named ones, other fields are kept.
+                incoming = {f["name"].lower(): f for f in values.pop("custom_fields")}
+                merged = [incoming.pop(f["name"].lower(), f) for f in case.custom_fields]
+                values["custom_fields"] = merged + list(incoming.values())
+            for k, v in values.items():
                 setattr(case, k, v)
             if case.section_id != section:
                 case.section_id = section
@@ -277,5 +295,8 @@ async def import_suite(
         if case.external_id:
             by_external[case.external_id] = case
 
-    await session.commit()
+    if dry_run:
+        await session.rollback()
+    else:
+        await session.commit()
     return result
