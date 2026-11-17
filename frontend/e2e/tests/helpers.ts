@@ -1,8 +1,9 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
+// Created/updated with a random password by `make e2e` (see Makefile).
 export const ADMIN = {
-  username: process.env.ADMIN_USERNAME ?? "admin",
-  password: process.env.ADMIN_PASSWORD ?? "admin",
+  email: process.env.E2E_EMAIL ?? "e2e-admin@testharbor.local",
+  password: process.env.E2E_PASSWORD ?? "",
 };
 
 export const unique = (prefix: string) => `${prefix} ${Date.now().toString(36)}`;

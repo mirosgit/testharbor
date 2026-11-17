@@ -1,4 +1,10 @@
 import type {
+  AdminUser,
+  Invite,
+  InviteInfo,
+  InviteLink,
+  Me,
+  Role,
   ApiToken,
   JUnitImportResult,
   CaseFilter,
@@ -40,7 +46,8 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set("content-type", "application/json");
   const res = await fetch(path, { ...init, headers, credentials: "same-origin" });
-  if (res.status === 401 && typeof window !== "undefined" && !path.startsWith("/api/auth/login")) {
+  const publicCall = path.startsWith("/api/auth/login") || path.startsWith("/api/invites/accept/");
+  if (res.status === 401 && typeof window !== "undefined" && !publicCall) {
     const next = encodeURIComponent(window.location.pathname + window.location.search);
     window.location.href = `/login?next=${next}`;
     throw new ApiError(401, "Not authenticated");
@@ -69,10 +76,27 @@ export function filterParams(f: object): URLSearchParams {
 }
 
 export const api = {
-  login: (username: string, password: string) =>
-    request<{ principal: string }>("/api/auth/login", json("POST", { username, password })),
+  setupStatus: () => request<{ has_users: boolean }>("/api/auth/setup-status"),
+  login: (email: string, password: string) =>
+    request<Me>("/api/auth/login", json("POST", { email, password })),
   logout: () => request<void>("/api/auth/logout", json("POST")),
-  me: () => request<{ principal: string }>("/api/auth/me"),
+  me: () => request<Me>("/api/auth/me"),
+  updateProfile: (name: string) => request<Me>("/api/auth/me", json("PATCH", { name })),
+  changePassword: (current_password: string, new_password: string) =>
+    request<Me>("/api/auth/password", json("POST", { current_password, new_password })),
+  logoutOthers: () => request<Me>("/api/auth/logout-others", json("POST")),
+
+  users: () => request<AdminUser[]>("/api/users"),
+  updateUser: (id: number, body: { role?: Role; is_active?: boolean; unlock?: boolean; name?: string }) =>
+    request<AdminUser>(`/api/users/${id}`, json("PATCH", body)),
+  resetLink: (id: number) => request<InviteLink>(`/api/users/${id}/reset-link`, json("POST")),
+  invites: () => request<Invite[]>("/api/invites"),
+  createInvite: (email: string, role: Role) =>
+    request<InviteLink>("/api/invites", json("POST", { email, role })),
+  revokeInvite: (id: number) => request<void>(`/api/invites/${id}`, json("DELETE")),
+  inviteInfo: (token: string) => request<InviteInfo>(`/api/invites/accept/${encodeURIComponent(token)}`),
+  acceptInvite: (token: string, body: { name?: string; password: string }) =>
+    request<Me>(`/api/invites/accept/${encodeURIComponent(token)}`, json("POST", body)),
 
   projects: () => request<Project[]>("/api/projects"),
   project: (id: number) => request<Project>(`/api/projects/${id}`),
