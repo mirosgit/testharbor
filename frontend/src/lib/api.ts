@@ -1,4 +1,6 @@
 import type {
+  FieldValues,
+  ImportTarget,
   AdminUser,
   Invite,
   InviteInfo,
@@ -68,6 +70,16 @@ const json = (method: string, body?: unknown): RequestInit => ({
 export function filterParams(f: object): URLSearchParams {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(f)) {
+    if (k === "fields" && v && typeof v === "object" && !Array.isArray(v)) {
+      for (const [name, values] of Object.entries(v as Record<string, string[]>))
+        values.forEach((value) => p.append("field", `${name}=${value}`));
+      continue;
+    }
+    if (k === "columns" && Array.isArray(v)) {
+      if (v.length === 0) p.append("columns", ""); // explicit "none"
+      v.forEach((c) => p.append("columns", String(c)));
+      continue;
+    }
     if (v === undefined || v === null || v === "") continue;
     if (Array.isArray(v)) v.forEach((x) => p.append(k, String(x)));
     else p.set(k, String(v));
@@ -125,6 +137,7 @@ export const api = {
   cases: (projectId: number, f: CaseFilter) =>
     request<CaseList>(`/api/projects/${projectId}/cases?${filterParams({ ...f })}&limit=5000`),
   tags: (projectId: number) => request<string[]>(`/api/projects/${projectId}/tags`),
+  customFields: (projectId: number) => request<FieldValues[]>(`/api/projects/${projectId}/custom-fields`),
   case: (ref: number | string) => request<TestCase>(`/api/cases/${ref}`),
   createCase: (body: CaseInput) => request<TestCase>("/api/cases", json("POST", body)),
   updateCase: (id: number, body: Partial<CaseInput>) =>
@@ -136,10 +149,11 @@ export const api = {
       json("POST", { case_ids: caseIds, section_id: sectionId, position }),
     ),
 
-  importCases: (suiteId: number, file: File) => {
+  importCases: (suiteId: number, file: File, target: ImportTarget) => {
     const fd = new FormData();
     fd.append("file", file);
-    return request<ImportResult>(`/api/suites/${suiteId}/import`, { method: "POST", body: fd });
+    const q = filterParams({ ...target, keep_paths: String(target.keep_paths), dry_run: target.dry_run ? "true" : undefined });
+    return request<ImportResult>(`/api/suites/${suiteId}/import?${q}`, { method: "POST", body: fd });
   },
   exportUrl: (suiteId: number, format: "csv" | "json") =>
     `/api/suites/${suiteId}/export?format=${format}`,

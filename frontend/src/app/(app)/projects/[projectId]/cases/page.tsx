@@ -138,11 +138,16 @@ function CasesWorkspace() {
         priority: filters.priority,
         type: filters.type,
         automation_status: filters.automation_status,
+        fields: filters.fields,
       }),
     enabled: !!suiteId,
     placeholderData: (prev) => prev,
   });
   const { data: tags = [] } = useQuery({ queryKey: ["tags", projectId], queryFn: () => api.tags(projectId) });
+  const { data: fieldOptions = [] } = useQuery({
+    queryKey: ["custom-fields", projectId],
+    queryFn: () => api.customFields(projectId),
+  });
 
   // Group cases by section in tree order. Without filters show every section in scope
   // (so empty sections are visible drop targets); with filters only sections with hits.
@@ -191,6 +196,8 @@ function CasesWorkspace() {
     qc.invalidateQueries({ queryKey: ["sections"] });
     qc.invalidateQueries({ queryKey: ["suites", projectId] });
     qc.invalidateQueries({ queryKey: ["projects"] });
+    qc.invalidateQueries({ queryKey: ["custom-fields", projectId] });
+    qc.invalidateQueries({ queryKey: ["tags", projectId] });
   };
   const fail = (e: unknown) => toast.error(e instanceof ApiError ? e.message : "Something went wrong");
 
@@ -255,7 +262,7 @@ function CasesWorkspace() {
   // --- Render -------------------------------------------------------------------------
   if (suitesQ.isLoading) {
     return (
-      <div className="grid h-full grid-cols-[280px_1fr]">
+      <div className="grid h-full grid-cols-[280px_minmax(0,1fr)]">
         <div className="border-r p-3">
           <Skeleton className="h-8" />
         </div>
@@ -281,7 +288,7 @@ function CasesWorkspace() {
 
   return (
     <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragIds([])}>
-      <div className="grid h-full grid-cols-[280px_1fr]">
+      <div className="grid h-full grid-cols-[280px_minmax(0,1fr)]">
         {/* Left: suite picker + section tree */}
         <aside className="flex min-h-0 flex-col border-r bg-muted/20">
           <div className="flex items-center gap-1 border-b p-2">
@@ -397,7 +404,7 @@ function CasesWorkspace() {
                 </Button>
               </div>
             </div>
-            <FilterBar value={filters} onChange={setFilters} tags={tags} />
+            <FilterBar value={filters} onChange={setFilters} tags={tags} fields={fieldOptions} />
             {selectedIds.length > 0 && (
               <div className="flex items-center gap-2 rounded-md bg-primary/5 px-3 py-1.5 text-sm">
                 <span className="font-medium">{selectedIds.length} selected</span>
@@ -530,10 +537,17 @@ function CasesWorkspace() {
             }}
           />
           <ImportDialog
+            key={`import-${dialog?.kind === "import"}`}
             open={dialog?.kind === "import"}
             onOpenChange={(o) => !o && close()}
             suiteId={suiteId}
-            onImported={refresh}
+            sections={flat}
+            paths={paths}
+            defaultSectionId={sectionId}
+            onImported={(r) => {
+              refresh();
+              if (r.section_id) setParams({ section: r.section_id, case: null });
+            }}
           />
           <MoveDialog
             open={dialog?.kind === "move"}

@@ -36,7 +36,7 @@ export function CaseTable({
   draggingIds: Set<number>;
 }) {
   return (
-    <div className="grid gap-5" data-testid="case-table">
+    <div className="flex flex-col gap-5" data-testid="case-table">
       {groups.map((g) => {
         const ids = g.cases.map((c) => c.id);
         const all = ids.length > 0 && ids.every((id) => selected.has(id));
