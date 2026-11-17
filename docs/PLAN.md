@@ -104,3 +104,7 @@ Enums:
 - **Phase 2.** Sections are returned as a flat list with `parent_id` and `position`, and clients build the tree from that.
 - **Phase 2.** On import, a blank cell in an existing row keeps the case's current value.
 - **Phase 2.** Bearer token checking is in place. Creating and revoking tokens comes in phase 5.
+- **Phase 3.** The case detail and editor open in a side sheet next to the list. `?case=<id>` in the URL makes an open case linkable.
+- **Phase 3.** Reorder steps with the up and down buttons. Drag-and-drop is only used for moving cases.
+- **Phase 3.** Drag a case onto a tree node or a group header to move it to that section, or onto a row to put it at that position. If the dragged case is selected, all selected cases move together.
+- **Phase 3.** The `cn` import that the shadcn CLI wrote was rewritten to `@/lib/utils`. The CLI had added an unrelated npm package named `cn`, which was removed.
