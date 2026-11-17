@@ -1,0 +1,29 @@
+[project]
+name = "testharbor-cli"
+version = "0.1.0"
+description = "Upload test results to TestHarbor, plus a pytest plugin to link tests to cases"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = []  # stdlib only, so it installs instantly in CI
+classifiers = ["Framework :: Pytest", "License :: OSI Approved :: MIT License"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+testcli = "testharbor_cli.main:main"
+
+[project.entry-points.pytest11]
+testharbor = "testharbor_cli.pytest_plugin"
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p pytester"

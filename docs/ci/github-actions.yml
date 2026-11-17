@@ -1,0 +1,76 @@
+# .github/workflows/tests.yml — run tests and send results to TestHarbor.
+#
+# Repository settings:
+#   Secrets   → TESTHARBOR_TOKEN  (Settings › API tokens in TestHarbor)
+#   Variables → TESTHARBOR_URL    (e.g. https://testharbor.example.com)
+#               TESTHARBOR_PROJECT (project id, e.g. 1)
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 3 * * *" # nightly
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          pip install -r requirements.txt
+          pip install "git+https://github.com/mirosgit/testharbor.git#subdirectory=cli"
+      - name: Test
+        run: pytest --junitxml=reports/junit.xml
+      - name: Upload results to TestHarbor
+        if: ${{ !cancelled() }} # also when tests failed
+        env:
+          TESTHARBOR_URL: ${{ vars.TESTHARBOR_URL }}
+          TESTHARBOR_TOKEN: ${{ secrets.TESTHARBOR_TOKEN }}
+          TESTHARBOR_PROJECT: ${{ vars.TESTHARBOR_PROJECT }}
+        # Branch, commit, build URL and run name ("GitHub Actions #<n>") are detected automatically.
+        run: testcli upload reports/junit.xml --auto-create
+
+  # Playwright, sharded: each shard saves its report, one job uploads them as a single run.
+  playwright:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci && npx playwright install --with-deps chromium
+      - name: Test
+        # playwright.config.ts: reporter: [["junit", { outputFile: "results/junit.xml", embedAnnotationsAsProperties: true }]]
+        run: npx playwright test --shard=${{ matrix.shard }}/2
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: junit-shard-${{ matrix.shard }}
+          path: results/junit.xml
+
+  upload-playwright:
+    needs: playwright
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: junit-shard-*
+          path: reports
+      - run: pip install "git+https://github.com/mirosgit/testharbor.git#subdirectory=cli"
+      - name: Upload all shards as one run
+        env:
+          TESTHARBOR_URL: ${{ vars.TESTHARBOR_URL }}
+          TESTHARBOR_TOKEN: ${{ secrets.TESTHARBOR_TOKEN }}
+          TESTHARBOR_PROJECT: ${{ vars.TESTHARBOR_PROJECT }}
+        run: testcli upload reports --run-name "Playwright #${{ github.run_number }}"
