@@ -111,3 +111,87 @@ export interface ImportResult {
   sections_created: number;
   errors: string[];
 }
+
+export interface RunStats {
+  total: number;
+  passed: number;
+  failed: number;
+  blocked: number;
+  skipped: number;
+  retest: number;
+  untested: number;
+}
+
+export interface TestRun {
+  id: number;
+  project_id: number;
+  name: string;
+  description: string;
+  source: RunSource;
+  branch: string | null;
+  commit: string | null;
+  build_url: string | null;
+  closed: boolean;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  stats: RunStats;
+}
+
+export interface RunList {
+  items: TestRun[];
+  total: number;
+}
+
+export interface TestResult {
+  id: number;
+  run_id: number;
+  case_id: number;
+  status: ResultStatus;
+  comment: string | null;
+  duration_ms: number | null;
+  error_message: string | null;
+  stack_trace: string | null;
+  created_at: string;
+}
+
+export interface RunCase {
+  case_id: number;
+  key: string;
+  title: string;
+  priority: Priority;
+  automation_status: AutomationStatus;
+  suite_id: number;
+  section_id: number;
+  section_path: string;
+  status: ResultStatus;
+  result_count: number;
+  last_result: TestResult | null;
+}
+
+export interface RunSelection {
+  case_ids?: number[];
+  suite_id?: number;
+  section_ids?: number[];
+  filter?: CaseFilter;
+}
+
+export interface ResultInput {
+  case_id: number;
+  status: ResultStatus;
+  comment?: string | null;
+  duration_ms?: number | null;
+  error_message?: string | null;
+}
+
+export interface CaseHistoryItem {
+  run_id: number;
+  run_name: string;
+  run_source: RunSource;
+  run_closed: boolean;
+  run_created_at: string;
+  branch: string | null;
+  status: ResultStatus;
+  result_count: number;
+  last_result: TestResult | null;
+}

@@ -8,7 +8,7 @@ from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
-from app.models import AutomationStatus, CaseType, Priority
+from app.models import AutomationStatus, CaseType, Priority, ResultStatus, RunSource
 
 
 class ORM(BaseModel):
@@ -211,3 +211,108 @@ class ImportResult(BaseModel):
     updated: int = 0
     sections_created: int = 0
     errors: list[str] = []
+
+
+# --- Runs ----------------------------------------------------------------------------
+
+
+class RunSelection(BaseModel):
+    """Which cases to include. All given selectors are combined (union)."""
+
+    case_ids: list[int] = []
+    suite_id: int | None = None
+    section_ids: list[int] = []
+    filter: CaseFilter | None = None
+
+
+class RunIn(RunSelection):
+    name: str = Field(min_length=1, max_length=300)
+    description: str = ""
+
+
+class RunPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=300)
+    description: str | None = None
+    closed: bool | None = None
+
+
+class RunStats(BaseModel):
+    total: int = 0
+    passed: int = 0
+    failed: int = 0
+    blocked: int = 0
+    skipped: int = 0
+    retest: int = 0
+    untested: int = 0
+
+
+class RunOut(ORM):
+    id: int
+    project_id: int
+    name: str
+    description: str
+    source: RunSource
+    branch: str | None
+    commit: str | None
+    build_url: str | None
+    closed: bool
+    closed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    stats: RunStats = RunStats()
+
+
+class RunList(BaseModel):
+    items: list[RunOut]
+    total: int
+
+
+class ResultIn(BaseModel):
+    case_id: int
+    status: ResultStatus
+    comment: str | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
+    error_message: str | None = None
+    stack_trace: str | None = None
+
+
+class BulkResultsIn(BaseModel):
+    results: list[ResultIn] = Field(min_length=1, max_length=5000)
+
+
+class ResultOut(ORM):
+    id: int
+    run_id: int
+    case_id: int
+    status: ResultStatus
+    comment: str | None
+    duration_ms: int | None
+    error_message: str | None
+    stack_trace: str | None
+    created_at: datetime
+
+
+class RunCaseOut(BaseModel):
+    case_id: int
+    key: str
+    title: str
+    priority: Priority
+    automation_status: AutomationStatus
+    suite_id: int
+    section_id: int
+    section_path: str
+    status: ResultStatus
+    result_count: int
+    last_result: ResultOut | None
+
+
+class CaseHistoryItem(BaseModel):
+    run_id: int
+    run_name: str
+    run_source: RunSource
+    run_closed: bool
+    run_created_at: datetime
+    branch: str | None
+    status: ResultStatus
+    result_count: int
+    last_result: ResultOut | None

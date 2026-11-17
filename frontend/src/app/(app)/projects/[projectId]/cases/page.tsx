@@ -29,6 +29,8 @@ import { emptyFilters, FilterBar, isFiltered, type Filters } from "@/components/
 import { ImportDialog } from "@/components/cases/import-dialog";
 import { MoveDialog } from "@/components/cases/move-dialog";
 import { SectionTree } from "@/components/cases/section-tree";
+import { CaseHistory } from "@/components/runs/case-history";
+import { CreateRunButton } from "@/components/runs/create-run-dialog";
 import { ConfirmDialog, NameDialog } from "@/components/dialogs";
 import { Button } from "@/components/ui/button";
 import {
@@ -95,7 +97,7 @@ function CasesWorkspace() {
   const suites = suitesQ.data ?? [];
   const suiteId = Number(search.get("suite")) || suites[0]?.id;
   const suite = suites.find((s) => s.id === suiteId);
-  const sectionId = search.get("section") ? Number(search.get("section")) : null;
+  const rawSectionId = search.get("section") ? Number(search.get("section")) : null;
   const openCaseId = search.get("case") ? Number(search.get("case")) : null;
 
   const sectionsQ = useQuery({
@@ -105,6 +107,9 @@ function CasesWorkspace() {
   });
   const tree = useMemo(() => buildTree(sectionsQ.data ?? []), [sectionsQ.data]);
   const flat = useMemo(() => flatten(tree), [tree]);
+  // Ignore a section from another suite (e.g. a stale link) once sections are known.
+  const sectionId =
+    rawSectionId !== null && (!sectionsQ.data || flat.some((s) => s.id === rawSectionId)) ? rawSectionId : null;
   const paths = useMemo(() => {
     const m = new Map<number, string>();
     const byId = new Map(flat.map((s) => [s.id, s]));
@@ -379,6 +384,14 @@ function CasesWorkspace() {
                 {casesQ.data ? `${casesQ.data.total} cases` : ""}
               </span>
               <div className="ml-auto flex items-center gap-2">
+                <CreateRunButton
+                  projectId={projectId}
+                  suiteId={suiteId}
+                  sectionId={sectionId}
+                  filters={filters}
+                  selectedIds={selectedIds}
+                  visibleCount={casesQ.data?.total ?? 0}
+                />
                 <Button size="sm" onClick={() => addCase()}>
                   <Plus /> Add case
                 </Button>
@@ -460,6 +473,7 @@ function CasesWorkspace() {
         projectId={projectId}
         sections={flat}
         paths={paths}
+        extra={(c) => <CaseHistory caseId={c.id} projectId={projectId} />}
       />
 
       <SuiteDialogs dialog={dialog} close={close} projectId={projectId} onDone={refresh} setParams={setParams} />
