@@ -100,3 +100,7 @@ Enums:
 
 - **Phase 1.** The frontend uses Next.js 16 and React 19 with TypeScript 5.9. TypeScript 7 is out, but Next does not support it yet.
 - **Phase 1.** Host ports can be changed with `FRONTEND_PORT`, `BACKEND_PORT` and `DB_PORT`, for example when 8000 is already taken. OpenAPI docs are served at `:8000/docs` and are also proxied at `:3000/docs`.
+- **Phase 2.** The tag filter matches cases that have **all** selected tags. Priority, type and automation status match **any** of the selected values.
+- **Phase 2.** Sections are returned as a flat list with `parent_id` and `position`, and clients build the tree from that.
+- **Phase 2.** On import, a blank cell in an existing row keeps the case's current value.
+- **Phase 2.** Bearer token checking is in place. Creating and revoking tokens comes in phase 5.
