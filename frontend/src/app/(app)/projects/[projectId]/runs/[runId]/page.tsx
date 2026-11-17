@@ -262,7 +262,7 @@ function RunView() {
         ) : groups.length === 0 ? (
           <p className="p-12 text-center text-muted-foreground">No cases match.</p>
         ) : (
-          <div className="grid gap-5" data-testid="run-cases">
+          <div className="flex flex-col gap-5" data-testid="run-cases">
             {groups.map(([path, cases]) => (
               <section key={path} aria-label={path}>
                 <div className="mb-1.5 flex items-center gap-2 px-2">

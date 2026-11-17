@@ -219,6 +219,11 @@ function CaseView({
             </span>
           </Meta>
           <Meta label="Updated">{new Date(c.updated_at).toLocaleDateString()}</Meta>
+          {c.external_id && (
+            <Meta label="External ID">
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{c.external_id}</code>
+            </Meta>
+          )}
           {c.automation_key && (
             <Meta label="Automation key" className="col-span-full">
               <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs break-all">

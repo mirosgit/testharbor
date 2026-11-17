@@ -221,3 +221,18 @@ An admin cannot demote or deactivate themselves. The system always keeps at leas
   - Without a reverse proxy, every request appears to come from the frontend container. This only weakens the per-IP limit; the per-account lockout still works.
   - In production, Caddy overwrites `X-Forwarded-For` with the real client IP. The prod compose file publishes only Caddy's ports.
 - **Session lifetime.** Sessions now last 14 days instead of 30.
+
+## Phase 8: import from other tools
+
+- **Target section.** The import dialog asks where to put the cases: an existing section, or a new top-level section (named after the file by default; an existing one with the same name is reused).
+  - With "keep folders" (the default), folders from the file are recreated inside that section. With it off, every case goes directly into it.
+  - The API without a target keeps the old behaviour: folders at the top level, and cases without a folder go to "Imported".
+- **Column matching.** Columns are matched by name, ignoring case and spacing, with aliases for TestHarbor, BrowserStack and TestRail exports.
+  - Values are mapped to TestHarbor's options: `Cannot Be Automated` becomes manual, `1 - Critical` becomes critical, `Undefined` becomes the default.
+  - Values that can't be mapped are imported with the default and listed as warnings. Columns with data that has nowhere to go are listed as ignored.
+- **External ID.** A new `external_id` field on cases stores ids from other tools (`TC-770`). Re-importing the same file updates the matching cases in the suite instead of duplicating them, and search finds cases by external id.
+  - An `ID` column in a foreign file, such as TestRail's `C123`, is always treated as an external id. Only TestHarbor's own export, recognised by its `section_path` column, uses `id` as a TestHarbor case id.
+- **Text cleanup.** Hard-wrapped lines (the 4-space-indented continuation lines in BrowserStack exports) are joined back together. A `Description` column goes on top of the preconditions. Expected results stay one case-level list, because BrowserStack exports don't pair them with individual steps.
+- **Delimiters.** Semicolon and tab delimited CSV files are detected.
+- **Automation status.** When a BrowserStack file has both `Automation Status` and `Automation Status (custom)`, the standard column is used.
+- **Test data.** The test fixture is a synthetic file in the same shape as a BrowserStack export. Real exports contain employee names and internal links, so they shouldn't be committed.

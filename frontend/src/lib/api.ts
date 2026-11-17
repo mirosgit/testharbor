@@ -1,4 +1,5 @@
 import type {
+  ImportTarget,
   AdminUser,
   Invite,
   InviteInfo,
@@ -136,10 +137,11 @@ export const api = {
       json("POST", { case_ids: caseIds, section_id: sectionId, position }),
     ),
 
-  importCases: (suiteId: number, file: File) => {
+  importCases: (suiteId: number, file: File, target: ImportTarget) => {
     const fd = new FormData();
     fd.append("file", file);
-    return request<ImportResult>(`/api/suites/${suiteId}/import`, { method: "POST", body: fd });
+    const q = filterParams({ ...target, keep_paths: String(target.keep_paths) });
+    return request<ImportResult>(`/api/suites/${suiteId}/import?${q}`, { method: "POST", body: fd });
   },
   exportUrl: (suiteId: number, format: "csv" | "json") =>
     `/api/suites/${suiteId}/export?format=${format}`,

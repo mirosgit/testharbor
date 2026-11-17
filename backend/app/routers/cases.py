@@ -105,7 +105,7 @@ async def update_case(case_ref: str, body: CasePatch, session: Session) -> TestC
     case = await get_or_404(session, TestCase, parse_case_ref(case_ref))
     data = body.model_dump(mode="json", exclude_unset=True)
     # automation_key may be explicitly cleared with null; other fields ignore nulls.
-    data = {k: v for k, v in data.items() if v is not None or k == "automation_key"}
+    data = {k: v for k, v in data.items() if v is not None or k in ("automation_key", "external_id")}
     section_id = data.pop("section_id", None)
     if section_id is not None and section_id != case.section_id:
         await _move(session, [case], section_id, None)
