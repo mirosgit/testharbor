@@ -195,3 +195,22 @@ export interface CaseHistoryItem {
   result_count: number;
   last_result: TestResult | null;
 }
+
+export interface ApiToken {
+  id: number;
+  name: string;
+  prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface JUnitImportResult {
+  run_id: number;
+  run_name: string;
+  total: number;
+  matched: number;
+  created: number;
+  unmatched: { name: string; classname: string; reason: string }[];
+  statuses: Record<string, number>;
+}

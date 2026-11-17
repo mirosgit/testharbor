@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="2" skipped="1" tests="10" time="0.028" timestamp="2026-11-17T17:33:43.197043+00:00" hostname="ci-runner"><testcase classname="tests.api.test_orders.TestOrders" name="test_create_order" file="tests/api/test_orders.py" line="1" time="0.000" /><testcase classname="tests.api.test_orders.TestOrders" name="test_refund_order" file="tests/api/test_orders.py" line="5" time="0.000" /><testcase classname="tests.test_auth" name="test_login_C1" file="tests/test_auth.py" line="5" time="0.000" /><testcase classname="tests.test_auth" name="test_wrong_password" file="tests/test_auth.py" line="10" time="0.000"><failure message="AssertionError: expected 401 for a wrong password&#10;assert 200 == 401">@pytest.mark.case("C2")
+    def test_wrong_password():
+        response = {"status": 200}
+&gt;       assert response["status"] == 401, "expected 401 for a wrong password"
+E       AssertionError: expected 401 for a wrong password
+E       assert 200 == 401
+
+tests/test_auth.py:14: AssertionError</failure></testcase><testcase classname="tests.test_auth" name="test_lockout_and_unlock" file="tests/test_auth.py" line="16" time="0.000" /><testcase classname="tests.test_auth" name="test_logout[chrome]" file="tests/test_auth.py" line="21" time="0.000" /><testcase classname="tests.test_auth" name="test_logout[firefox]" file="tests/test_auth.py" line="21" time="0.000"><failure message="AssertionError: logout button hidden in firefox&#10;assert 'firefox' == 'chrome'&#10;  &#10;  - chrome&#10;  + firefox">browser = 'firefox'
+
+    @pytest.mark.case("C5")
+    @pytest.mark.parametrize("browser", ["chrome", "firefox"])
+    def test_logout(browser):
+&gt;       assert browser == "chrome", f"logout button hidden in {browser}"
+E       AssertionError: logout button hidden in firefox
+E       assert 'firefox' == 'chrome'
+E         
+E         - chrome
+E         + firefox
+
+tests/test_auth.py:25: AssertionError</failure></testcase><testcase classname="tests.test_auth" name="test_sso_login" file="tests/test_auth.py" line="27" time="0.000"><skipped type="pytest.skip" message="SSO provider not configured">/tmp/work/tests/test_auth.py:28: SSO provider not configured</skipped></testcase><testcase classname="tests.test_auth" name="test_signup" file="tests/test_auth.py" line="33" time="0.000" /><testcase classname="tests.test_auth" name="test_profile_page" file="tests/test_auth.py" line="43" time="0.000"><error message="failed on setup with &quot;ConnectionError: database is unavailable&quot;">@pytest.fixture
+    def broken_db():
+&gt;       raise ConnectionError("database is unavailable")
+E       ConnectionError: database is unavailable
+
+tests/test_auth.py:41: ConnectionError</error></testcase></testsuite></testsuites>

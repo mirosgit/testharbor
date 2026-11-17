@@ -316,3 +316,39 @@ class CaseHistoryItem(BaseModel):
     status: ResultStatus
     result_count: int
     last_result: ResultOut | None
+
+
+# --- Automation ----------------------------------------------------------------------
+
+
+class UnmatchedTest(BaseModel):
+    name: str
+    classname: str
+    reason: str
+
+
+class JUnitImportResult(BaseModel):
+    run_id: int
+    run_name: str
+    total: int  # <testcase> elements in the uploaded files
+    matched: int  # tests mapped to existing cases
+    created: int  # cases auto-created
+    unmatched: list[UnmatchedTest]
+    statuses: dict[str, int]  # results recorded, by status
+
+
+class TokenIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+class TokenOut(ORM):
+    id: int
+    name: str
+    prefix: str
+    created_at: datetime
+    last_used_at: datetime | None
+    revoked_at: datetime | None
+
+
+class TokenCreated(TokenOut):
+    token: str  # shown only once

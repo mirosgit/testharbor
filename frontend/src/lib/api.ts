@@ -1,4 +1,6 @@
 import type {
+  ApiToken,
+  JUnitImportResult,
   CaseFilter,
   CaseHistoryItem,
   ResultInput,
@@ -138,4 +140,22 @@ export const api = {
   caseResultsInRun: (runId: number, caseId: number) =>
     request<TestResult[]>(`/api/runs/${runId}/cases/${caseId}/results`),
   caseHistory: (caseId: number) => request<CaseHistoryItem[]>(`/api/cases/${caseId}/history`),
+
+  tokens: () => request<ApiToken[]>("/api/tokens"),
+  createToken: (name: string) =>
+    request<ApiToken & { token: string }>("/api/tokens", json("POST", { name })),
+  revokeToken: (id: number) => request<void>(`/api/tokens/${id}`, json("DELETE")),
+  importJunit: (
+    projectId: number,
+    files: File[],
+    params: { run_name?: string; branch?: string; commit?: string; auto_create?: boolean },
+  ) => {
+    const fd = new FormData();
+    files.forEach((f) => fd.append("file", f));
+    const q = filterParams({ ...params, auto_create: params.auto_create ? "true" : undefined });
+    return request<JUnitImportResult>(`/api/projects/${projectId}/runs/import-junit?${q}`, {
+      method: "POST",
+      body: fd,
+    });
+  },
 };

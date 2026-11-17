@@ -1,0 +1,51 @@
+# bitbucket-pipelines.yml — run tests and send results to TestHarbor.
+#
+# Repository settings › Repository variables:
+#   TESTHARBOR_URL      e.g. https://testharbor.example.com
+#   TESTHARBOR_TOKEN    (mark as Secured)
+#   TESTHARBOR_PROJECT  project id, e.g. 1
+#
+# `after-script` runs even when the tests fail, so results are always uploaded.
+# Branch, commit, build URL and run name ("Bitbucket Pipelines #<n>") are detected automatically.
+
+definitions:
+  steps:
+    - step: &pytest
+        name: pytest
+        image: python:3.12
+        caches: [pip]
+        script:
+          - pip install -r requirements.txt
+          - pip install "git+https://github.com/mirosgit/testharbor.git#subdirectory=cli"
+          # Bitbucket also shows reports from test-reports/ in its own UI.
+          - pytest --junitxml=test-reports/junit.xml
+        after-script:
+          - testcli upload test-reports/junit.xml --auto-create
+
+    - step: &playwright
+        name: Playwright
+        image: mcr.microsoft.com/playwright:v1.65.1-noble
+        script:
+          - npm ci
+          - npx playwright test # reporter: junit -> results/junit.xml
+        after-script:
+          - apt-get update -qq && apt-get install -y -qq python3-pip >/dev/null
+          - pip3 install --break-system-packages "git+https://github.com/mirosgit/testharbor.git#subdirectory=cli"
+          - testcli upload results/junit.xml
+
+pipelines:
+  default:
+    - step: *pytest
+
+  branches:
+    main:
+      - parallel:
+          - step: *pytest
+          - step: *playwright
+
+  custom:
+    nightly: # schedule it under Pipelines › Schedules
+      - step:
+          <<: *pytest
+          after-script:
+            - testcli upload test-reports/junit.xml --run-name "Nightly $(date +%F)" --auto-create

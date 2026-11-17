@@ -1,0 +1,5 @@
+{
+  "name": "playwright-junit-sample",
+  "private": true,
+  "devDependencies": { "@playwright/test": "1.65.1" }
+}

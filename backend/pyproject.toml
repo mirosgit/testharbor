@@ -37,3 +37,5 @@ asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["."]
+# tests/fixtures holds sample suites used to generate JUnit reports; never collect them.
+addopts = "--ignore=tests/fixtures"

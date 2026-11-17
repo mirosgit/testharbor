@@ -1,12 +1,13 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Lock, PlayCircle, Plus } from "lucide-react";
+import { Lock, PlayCircle, Plus, Upload } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import { CreateRunDialog } from "@/components/runs/create-run-dialog";
+import { JUnitUploadDialog } from "@/components/runs/junit-upload-dialog";
 import { passRate, percentDone, RunProgress } from "@/components/runs/progress";
 import { CiMeta, RunSourceBadge, timeAgo } from "@/components/runs/run-meta";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ export default function RunsPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("all");
   const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const closed = TABS.find((t) => t.key === tab)!.closed;
   const { data, isLoading } = useQuery({
     queryKey: ["runs", projectId, tab, page],
@@ -57,7 +59,10 @@ export default function RunsPage() {
               </button>
             ))}
           </div>
-          <Button className="ml-auto" size="sm" onClick={() => setCreating(true)}>
+          <Button className="ml-auto" size="sm" variant="outline" onClick={() => setUploading(true)}>
+            <Upload /> Upload JUnit
+          </Button>
+          <Button size="sm" onClick={() => setCreating(true)}>
             <Plus /> New run
           </Button>
         </div>
@@ -136,6 +141,7 @@ export default function RunsPage() {
         )}
       </div>
       <CreateRunDialog open={creating} onOpenChange={setCreating} projectId={projectId} />
+      <JUnitUploadDialog open={uploading} onOpenChange={setUploading} projectId={projectId} />
     </main>
   );
 }

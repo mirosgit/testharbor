@@ -1,0 +1,56 @@
+<testsuites id="" name="" tests="4" failures="1" skipped="1" errors="0" time="1.509383">
+<testsuite name="login.spec.ts" timestamp="2026-11-17T17:33:46.312Z" hostname="" tests="4" failures="1" skipped="1" time="0.683" errors="0">
+<testcase name="Login › C1 login with valid credentials" classname="login.spec.ts" time="0.069">
+</testcase>
+<testcase name="Login › shows an error for a wrong password" classname="login.spec.ts" time="0.538">
+<properties>
+<property name="case_id" value="C2">
+</property>
+</properties>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|../test-results/login-Login-shows-an-error-for-a-wrong-password/error-context.md]]
+]]>
+</system-out>
+<failure message="expect(locator).toBeVisible() failed" type="expect.toBeVisible">
+<![CDATA[  login.spec.ts:13:3 › Login › shows an error for a wrong password ─────────────────────────────────
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator:  locator('#error')
+    Expected: visible
+    Received: hidden
+    Timeout:  500ms
+
+    Call log:
+      - Expect "toBeVisible" locator('#error') with timeout 500ms
+      - waiting for locator('#error')
+        6 × locator resolved to <p hidden="" id="error">Invalid email or password</p>
+          - unexpected value "hidden"
+
+
+      16 |     async ({ page }) => {
+      17 |       await page.setContent(loginPage);
+    > 18 |       await expect(page.locator("#error")).toBeVisible({ timeout: 500 });
+         |                                            ^
+      19 |     },
+      20 |   );
+      21 |
+        at /tmp/work/tests/login.spec.ts:18:44
+
+    Error Context: ../test-results/login-Login-shows-an-error-for-a-wrong-password/error-context.md
+]]>
+</failure>
+</testcase>
+<testcase name="Login › remember me [C6]" classname="login.spec.ts">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="signup form renders" classname="login.spec.ts" time="0.076">
+</testcase>
+</testsuite>
+</testsuites>

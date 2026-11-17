@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="2" skipped="1" tests="10" time="0.028" timestamp="2026-11-17T17:33:42.756114+00:00" hostname="ci-runner"><testcase classname="tests.api.test_orders.TestOrders" name="test_create_order" time="0.000"><properties><property name="automation_key" value="tests/api/test_orders.py::TestOrders::test_create_order" /></properties><system-out>--------------------------------- Captured Out ---------------------------------
+POST /orders -&gt; 201
+
+</system-out></testcase><testcase classname="tests.api.test_orders.TestOrders" name="test_refund_order" time="0.000"><properties><property name="automation_key" value="tests/api/test_orders.py::TestOrders::test_refund_order" /></properties><system-out>--------------------------------- Captured Out ---------------------------------
+
+</system-out></testcase><testcase classname="tests.test_auth" name="test_login_C1" time="0.000"><properties><property name="automation_key" value="tests/test_auth.py::test_login_C1" /></properties><system-out>--------------------------------- Captured Out ---------------------------------
+
+</system-out></testcase><testcase classname="tests.test_auth" name="test_wrong_password" time="0.000"><properties><property name="case_id" value="C2" /><property name="automation_key" value="tests/test_auth.py::test_wrong_password" /></properties><failure message="AssertionError: expected 401 for a wrong password&#10;assert 200 == 401">@pytest.mark.case("C2")
+    def test_wrong_password():
+        response = {"status": 200}
+&gt;       assert response["status"] == 401, "expected 401 for a wrong password"
+E       AssertionError: expected 401 for a wrong password
+E       assert 200 == 401
+
+tests/test_auth.py:14: AssertionError</failure><system-out>--------------------------------- Captured Out ---------------------------------
+
+</system-out></testcase><testcase classname="tests.test_auth" name="test_lockout_and_unlock" time="0.000"><properties><property name="case_id" value="C3,C4" /><property name="automation_key" value="tests/test_auth.py::test_lockout_and_unlock" /></properties><system-out>--------------------------------- Captured Out ---------------------------------
+
+</system-out></testcase><testcase classname="tests.test_auth" name="test_logout[chrome]" time="0.000"><properties><property name="case_id" value="C5" /><property name="automation_key" value="tests/test_auth.py::test_logout[chrome]" /></properties><system-out>--------------------------------- Captured Out ---------------------------------
+
+</system-out></testcase><testcase classname="tests.test_auth" name="test_logout[firefox]" time="0.000"><properties><property name="case_id" value="C5" /><property name="automation_key" value="tests/test_auth.py::test_logout[firefox]" /></properties><failure message="AssertionError: logout button hidden in firefox&#10;assert 'firefox' == 'chrome'&#10;  &#10;  - chrome&#10;  + firefox">browser = 'firefox'
+
+    @pytest.mark.case("C5")
+    @pytest.mark.parametrize("browser", ["chrome", "firefox"])
+    def test_logout(browser):
+&gt;       assert browser == "chrome", f"logout button hidden in {browser}"
+E       AssertionError: logout button hidden in firefox
+E       assert 'firefox' == 'chrome'
+E         
+E         - chrome
+E         + firefox
+
+tests/test_auth.py:25: AssertionError</failure><system-out>--------------------------------- Captured Out ---------------------------------
+
+</system-out></testcase><testcase classname="tests.test_auth" name="test_sso_login" time="0.000"><properties><property name="case_id" value="C6" /><property name="automation_key" value="tests/test_auth.py::test_sso_login" /></properties><skipped type="pytest.skip" message="SSO provider not configured">/tmp/work/tests/test_auth.py:28: SSO provider not configured</skipped><system-out>--------------------------------- Captured Out ---------------------------------
+
+</system-out><system-out>--------------------------------- Captured Out ---------------------------------
+
+</system-out></testcase><testcase classname="tests.test_auth" name="test_signup" time="0.000"><properties><property name="automation_key" value="tests/test_auth.py::test_signup" /></properties><system-out>--------------------------------- Captured Out ---------------------------------
+
+</system-out></testcase><testcase classname="tests.test_auth" name="test_profile_page" time="0.000"><properties><property name="automation_key" value="tests/test_auth.py::test_profile_page" /></properties><error message="failed on setup with &quot;ConnectionError: database is unavailable&quot;">@pytest.fixture
+    def broken_db():
+&gt;       raise ConnectionError("database is unavailable")
+E       ConnectionError: database is unavailable
+
+tests/test_auth.py:41: ConnectionError</error><system-out>--------------------------------- Captured Out ---------------------------------
+
+</system-out></testcase></testsuite></testsuites>
