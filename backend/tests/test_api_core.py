@@ -2,7 +2,6 @@
 
 from httpx import AsyncClient
 
-from app.config import get_settings
 from tests_helpers import ids
 
 # --- Auth ----------------------------------------------------------------------------
@@ -11,20 +10,6 @@ from tests_helpers import ids
 async def test_requires_auth(anon: AsyncClient) -> None:
     assert (await anon.get("/api/projects")).status_code == 401
     assert (await anon.get("/api/health")).status_code == 200
-
-
-async def test_login_logout(anon: AsyncClient) -> None:
-    s = get_settings()
-    bad = await anon.post("/api/auth/login", json={"username": s.admin_username, "password": "nope"})
-    assert bad.status_code == 401
-    ok = await anon.post(
-        "/api/auth/login", json={"username": s.admin_username, "password": s.admin_password}
-    )
-    assert ok.status_code == 200
-    assert "httponly" in ok.headers["set-cookie"].lower()
-    assert (await anon.get("/api/auth/me")).json() == {"principal": "admin"}
-    assert (await anon.post("/api/auth/logout")).status_code == 204
-    assert (await anon.get("/api/projects")).status_code == 401
 
 
 async def test_tampered_cookie_rejected(anon: AsyncClient) -> None:

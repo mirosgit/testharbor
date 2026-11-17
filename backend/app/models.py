@@ -75,6 +75,16 @@ class RunSource(enum.StrEnum):
     ci = "ci"
 
 
+class Role(enum.StrEnum):
+    admin = "admin"
+    tester = "tester"
+
+
+class InvitePurpose(enum.StrEnum):
+    invite = "invite"  # create a new account
+    reset = "reset"  # set a new password for an existing account
+
+
 class ResultStatus(enum.StrEnum):
     passed = "passed"
     failed = "failed"
@@ -212,8 +222,17 @@ class TestRun(Base):
     build_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     closed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _updated()
+
+    created_by: Mapped[User | None] = relationship(lazy="joined")
+
+    @property
+    def created_by_name(self) -> str | None:
+        return self.created_by.name if self.created_by else None
 
 
 class RunCase(Base):
@@ -248,13 +267,23 @@ class TestResult(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     stack_trace: Mapped[str | None] = mapped_column(Text, nullable=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = _now()
+
+    user: Mapped[User | None] = relationship(lazy="joined")
+
+    @property
+    def recorded_by(self) -> str | None:
+        return self.user.name if self.user else None
 
 
 class ApiToken(Base):
     __tablename__ = "api_tokens"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(200))
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     # First characters of the token, shown in the UI to tell tokens apart.
@@ -262,3 +291,43 @@ class ApiToken(Base):
     created_at: Mapped[datetime] = _now()
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True)  # always lowercased
+    name: Mapped[str] = mapped_column(String(200))
+    password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[Role] = mapped_column(_enum(Role, "role"), default=Role.tester)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # Bumped to invalidate every session of the user (password change, "sign out everywhere").
+    session_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = _updated()
+
+
+class Invite(Base):
+    """One-time link to create an account (invite) or set a new password (reset)."""
+
+    __tablename__ = "invites"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    purpose: Mapped[InvitePurpose] = mapped_column(_enum(InvitePurpose, "invite_purpose"))
+    email: Mapped[str] = mapped_column(String(320))
+    role: Mapped[Role] = mapped_column(_enum(Role, "role"))
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+    )  # set for password resets
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = _now()

@@ -300,7 +300,10 @@ async def test_token_lifecycle_and_bearer_import(client: AsyncClient, project) -
         r = await bot.post(f"/api/projects/{project['id']}/runs/import-junit", headers=headers,
                            files={"file": ("p.xml", load("playwright.xml"), "application/xml")})
         assert r.status_code == 200, r.text
-        assert (await bot.get("/api/auth/me", headers=headers)).json() == {"principal": "token:CI"}
+        me = (await bot.get("/api/auth/me", headers=headers)).json()
+        assert (me["email"], me["via"]) == ("admin@example.com", "token")
+        # Tokens can't manage tokens (a leaked CI token must not mint new ones).
+        assert (await bot.post("/api/tokens", headers=headers, json={"name": "x"})).status_code == 403
         assert (await client.get("/api/tokens")).json()[0]["last_used_at"] is not None
 
         # Wrong / revoked tokens are rejected.
