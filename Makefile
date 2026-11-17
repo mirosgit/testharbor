@@ -1,5 +1,7 @@
 # Convenience targets. Everything runs in Docker; no local Python/Node needed.
-.PHONY: up down logs admin seed test test-backend test-cli e2e junit-samples
+.PHONY: up down logs admin seed test test-backend test-cli e2e junit-samples prod-up prod-admin backup
+
+PROD = docker compose -f docker-compose.yml -f docker-compose.prod.yml
 
 up:            ## build and start db + backend + frontend
 	docker compose up -d --build
@@ -32,6 +34,15 @@ e2e:           ## Playwright smoke tests against the running stack (uses a throw
 	printf '%s\n' "$$E2E_PASSWORD" | docker compose exec -T backend python -m app.manage create-admin \
 	  --email $(E2E_EMAIL) --name "E2E Admin" --password-stdin --update >/dev/null && \
 	E2E_EMAIL=$(E2E_EMAIL) E2E_PASSWORD="$$E2E_PASSWORD" docker compose --profile e2e run --rm e2e
+
+prod-up:       ## production: HTTPS via Caddy (needs DOMAIN, SECRET_KEY, DB_PASSWORD in .env)
+	$(PROD) up -d --build
+
+prod-admin:    ## production: create an admin account
+	$(PROD) exec backend python -m app.manage create-admin
+
+backup:        ## dump the database to ./backups
+	./deploy/backup.sh
 
 junit-samples: ## regenerate real JUnit XML fixtures (pytest, Playwright, Surefire)
 	backend/tests/fixtures/junit/generators/generate.sh

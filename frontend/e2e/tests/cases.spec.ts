@@ -36,11 +36,13 @@ test("log in, create a project, suite, section and case", async ({ page }) => {
   await expect(sheet.getByRole("heading", { name: "Pay with a saved card" })).toBeVisible();
   await expect(sheet.getByText("Order confirmation is shown")).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden(); // focus is trapped in the sheet until it has closed
 
   const row = page.getByTestId("case-row").filter({ hasText: "Pay with a saved card" });
   await expect(row).toBeVisible();
 
   // Search narrows the list.
   await page.getByLabel("Search cases").fill("nothing like this");
+  await expect(page.getByLabel("Search cases")).toHaveValue("nothing like this");
   await expect(page.getByText("No cases match the filters.")).toBeVisible();
 });
