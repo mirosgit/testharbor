@@ -10,8 +10,6 @@ TEST_DB = os.environ.get(
 )
 # Must happen before the app (and its engine) is imported.
 os.environ["DATABASE_URL"] = TEST_DB
-os.environ.setdefault("ADMIN_USERNAME", "admin")
-os.environ.setdefault("ADMIN_PASSWORD", "secret")
 os.environ["SEED_DEMO"] = "false"
 
 from collections.abc import AsyncIterator  # noqa: E402
@@ -24,10 +22,14 @@ from alembic.config import Config  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
-from app.config import get_settings  # noqa: E402
+from app.auth import hash_password, login_limiter  # noqa: E402
 from app.db import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import Base  # noqa: E402
+from app.models import Base, Role, User  # noqa: E402
+
+ADMIN_EMAIL, TESTER_EMAIL = "admin@example.com", "tester@example.com"
+PASSWORD = "correct horse battery"
+_HASH = hash_password(PASSWORD)  # hash once; argon2 is deliberately slow
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -43,6 +45,7 @@ def migrated_db() -> None:
 
 @pytest.fixture(autouse=True)
 async def clean_tables() -> AsyncIterator[None]:
+    login_limiter.reset()
     yield
     tables = ", ".join(t.name for t in Base.metadata.sorted_tables)
     async with engine.begin() as conn:
@@ -55,20 +58,49 @@ async def session() -> AsyncIterator[Any]:
         yield s
 
 
+def _client() -> AsyncClient:
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+
+
+async def create_user(email: str, role: Role = Role.tester, name: str | None = None, **kw: Any) -> User:
+    async with SessionLocal() as s:
+        user = User(email=email, name=name or email.split("@")[0], role=role, password_hash=_HASH, **kw)
+        s.add(user)
+        await s.commit()
+        return user
+
+
+async def login(c: AsyncClient, email: str, password: str = PASSWORD) -> None:
+    r = await c.post("/api/auth/login", json={"email": email, "password": password})
+    assert r.status_code == 200, r.text
+
+
 @pytest.fixture
 async def anon() -> AsyncIterator[AsyncClient]:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with _client() as c:
         yield c
 
 
 @pytest.fixture
-async def client(anon: AsyncClient) -> AsyncClient:
-    s = get_settings()
-    r = await anon.post(
-        "/api/auth/login", json={"username": s.admin_username, "password": s.admin_password}
-    )
-    assert r.status_code == 200, r.text
-    return anon
+async def admin_user() -> User:
+    return await create_user(ADMIN_EMAIL, Role.admin, name="Ada Admin")
+
+
+@pytest.fixture
+async def client(admin_user: User) -> AsyncIterator[AsyncClient]:
+    """Signed in as an admin."""
+    async with _client() as c:
+        await login(c, ADMIN_EMAIL)
+        yield c
+
+
+@pytest.fixture
+async def tester(admin_user: User) -> AsyncIterator[AsyncClient]:
+    """Signed in as a tester (an admin also exists)."""
+    await create_user(TESTER_EMAIL, Role.tester, name="Tom Tester")
+    async with _client() as c:
+        await login(c, TESTER_EMAIL)
+        yield c
 
 
 # --- Small factories -----------------------------------------------------------------

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import generate_token, hash_token
+from app.auth import CurrentPrincipal, Principal, generate_token, hash_token, require_session
 from app.db import get_session
 from app.junit import STATUS_SEVERITY, JUnitCase, JUnitParseError, parse_junit
 from app.models import (
@@ -20,6 +20,7 @@ from app.models import (
     Suite,
     TestCase,
     TestRun,
+    User,
 )
 from app.schemas import (
     JUnitImportResult,
@@ -42,24 +43,36 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 # --- Tokens --------------------------------------------------------------------------
 
 
+SessionPrincipal = Annotated[Principal, Depends(require_session)]
+
+
 @router.get("/tokens", response_model=list[TokenOut])
-async def list_tokens(session: Session) -> list[ApiToken]:
-    return list(await session.scalars(select(ApiToken).order_by(ApiToken.created_at.desc())))
+async def list_tokens(principal: SessionPrincipal, session: Session) -> list[TokenOut]:
+    """Your tokens; admins see everyone's (with the owner's name)."""
+    stmt = select(ApiToken, User.name).join(User, User.id == ApiToken.user_id)
+    if not principal.is_admin:
+        stmt = stmt.where(ApiToken.user_id == principal.user.id)
+    rows = await session.execute(stmt.order_by(ApiToken.created_at.desc()))
+    return [TokenOut.model_validate(t).model_copy(update={"owner": owner}) for t, owner in rows]
 
 
 @router.post("/tokens", response_model=TokenCreated, status_code=status.HTTP_201_CREATED)
-async def create_token(body: TokenIn, session: Session) -> TokenCreated:
-    """Create an API token. The plain token is returned once and never stored."""
+async def create_token(body: TokenIn, principal: SessionPrincipal, session: Session) -> TokenCreated:
+    """Create an API token that acts as you. The plain token is returned once and never stored."""
     token = generate_token()
-    api_token = ApiToken(name=body.name, token_hash=hash_token(token), prefix=token[:10])
+    api_token = ApiToken(user_id=principal.user.id, name=body.name, token_hash=hash_token(token),
+                         prefix=token[:10])
     session.add(api_token)
     await session.commit()
-    return TokenCreated(**TokenOut.model_validate(api_token).model_dump(), token=token)
+    out = TokenOut.model_validate(api_token).model_copy(update={"owner": principal.user.name})
+    return TokenCreated(**out.model_dump(), token=token)
 
 
 @router.delete("/tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def revoke_token(token_id: int, session: Session) -> None:
+async def revoke_token(token_id: int, principal: SessionPrincipal, session: Session) -> None:
     api_token = await get_or_404(session, ApiToken, token_id)
+    if api_token.user_id != principal.user.id and not principal.is_admin:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"ApiToken {token_id} not found")
     if api_token.revoked_at is None:
         api_token.revoked_at = datetime.now(UTC)
         await session.commit()
@@ -95,6 +108,7 @@ async def import_junit(
     project_id: int,
     file: list[UploadFile],
     session: Session,
+    principal: CurrentPrincipal,
     run_name: Annotated[str | None, Query(max_length=300)] = None,
     branch: Annotated[str | None, Query(max_length=300)] = None,
     commit: Annotated[str | None, Query(max_length=100)] = None,
@@ -137,6 +151,7 @@ async def import_junit(
             branch=branch or None,
             commit=commit or None,
             build_url=build_url or None,
+            created_by_id=principal.user.id,
         )
         session.add(run)
         await session.flush()
@@ -214,7 +229,7 @@ async def import_junit(
                 error_message=t.message,
                 stack_trace=t.details,
                 comment=t.display_name if len(results) > 1 else None,
-            ))
+            ), principal.user.id)
             statuses[t.status.value] += 1
 
     await session.commit()
