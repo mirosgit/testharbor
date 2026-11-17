@@ -157,7 +157,10 @@ function RunView() {
                 </div>
                 <h1 className="mt-1 text-2xl font-semibold">{run.name}</h1>
                 <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                  <span>Created {timeAgo(run.created_at)}</span>
+                  <span>
+                    Created {timeAgo(run.created_at)}
+                    {run.created_by_name && ` by ${run.created_by_name}`}
+                  </span>
                   <CiMeta run={run} />
                 </div>
               </div>

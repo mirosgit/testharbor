@@ -5,7 +5,8 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: testharbor
-      POSTGRES_PASSWORD: testharbor
+      # Only applied when the database volume is first created.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-testharbor}
       POSTGRES_DB: testharbor
     volumes:
       - db-data:/var/lib/postgresql/data
@@ -21,10 +22,8 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql+asyncpg://testharbor:testharbor@db:5432/testharbor
-      TEST_DATABASE_URL: postgresql+asyncpg://testharbor:testharbor@db:5432/testharbor_test
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      DATABASE_URL: postgresql+asyncpg://testharbor:${DB_PASSWORD:-testharbor}@db:5432/testharbor
+      TEST_DATABASE_URL: postgresql+asyncpg://testharbor:${DB_PASSWORD:-testharbor}@db:5432/testharbor_test
       SECRET_KEY: ${SECRET_KEY:-change-me-please}
       SEED_DEMO: ${SEED_DEMO:-true}
       SECURE_COOKIES: ${SECURE_COOKIES:-false}
@@ -58,8 +57,9 @@ services:
     ipc: host
     environment:
       BASE_URL: http://frontend:3000
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      # Set by `make e2e`, which creates/updates this admin with a random password.
+      E2E_EMAIL: ${E2E_EMAIL:-e2e-admin@testharbor.local}
+      E2E_PASSWORD: ${E2E_PASSWORD:-}
       E2E_OUTPUT_DIR: /tmp/test-results
       CI: "true"
     volumes:

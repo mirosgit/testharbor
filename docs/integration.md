@@ -14,7 +14,7 @@ are stored as that case's result in the run.
 
 ## 1. Create an API token
 
-Open **Settings › API tokens › New token**. Copy the token, because it is only shown once. Store it
+Open **Settings › API tokens › New token**. The token acts as you, with your role. Copy it, because it is only shown once. Store it
 as a secret in your CI. Tokens are sent as `Authorization: Bearer <token>`.
 
 ## 2. Install the CLI

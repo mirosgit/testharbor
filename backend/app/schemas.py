@@ -8,7 +8,15 @@ from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
-from app.models import AutomationStatus, CaseType, Priority, ResultStatus, RunSource
+from app.models import (
+    AutomationStatus,
+    CaseType,
+    InvitePurpose,
+    Priority,
+    ResultStatus,
+    Role,
+    RunSource,
+)
 
 
 class ORM(BaseModel):
@@ -19,12 +27,80 @@ class ORM(BaseModel):
 
 
 class LoginIn(BaseModel):
-    username: str
-    password: str
+    email: str = Field(max_length=320)
+    password: str = Field(max_length=256)
 
 
-class MeOut(BaseModel):
-    principal: str
+class UserOut(ORM):
+    id: int
+    email: str
+    name: str
+    role: Role
+    is_active: bool
+    last_login_at: datetime | None
+    created_at: datetime
+
+
+class AdminUserOut(UserOut):
+    locked: bool = False
+
+
+class MeOut(UserOut):
+    via: str  # "session" or "token"
+
+
+class SetupStatus(BaseModel):
+    has_users: bool
+
+
+class ProfilePatch(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(max_length=256)
+    new_password: str = Field(max_length=256)
+
+
+class UserPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    role: Role | None = None
+    is_active: bool | None = None
+    unlock: bool | None = None
+
+
+class InviteIn(BaseModel):
+    email: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+$")
+    role: Role = Role.tester
+
+
+class InviteOut(ORM):
+    id: int
+    purpose: InvitePurpose
+    email: str
+    role: Role
+    expires_at: datetime
+    created_at: datetime
+
+
+class InviteLink(InviteOut):
+    token: str  # shown once; the link is /invite/<token>
+    path: str
+
+
+class InviteInfo(BaseModel):
+    """Public info shown on the accept page."""
+
+    purpose: InvitePurpose
+    email: str
+    role: Role
+    name: str | None = None  # existing name for password resets
+    expires_at: datetime
+
+
+class InviteAccept(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
+    password: str = Field(max_length=256)
 
 
 # --- Projects ------------------------------------------------------------------------
@@ -259,6 +335,7 @@ class RunOut(ORM):
     closed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    created_by_name: str | None = None
     stats: RunStats = RunStats()
 
 
@@ -289,6 +366,7 @@ class ResultOut(ORM):
     duration_ms: int | None
     error_message: str | None
     stack_trace: str | None
+    recorded_by: str | None = None
     created_at: datetime
 
 
@@ -343,6 +421,8 @@ class TokenIn(BaseModel):
 
 class TokenOut(ORM):
     id: int
+    user_id: int
+    owner: str | None = None  # owner's name (shown to admins)
     name: str
     prefix: str
     created_at: datetime

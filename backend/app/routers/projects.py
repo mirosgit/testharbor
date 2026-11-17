@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import require_admin
 from app.db import get_session
 from app.models import Project, Suite, TestCase, TestRun
 from app.schemas import ProjectIn, ProjectOut, ProjectPatch
@@ -69,7 +70,9 @@ async def update_project(project_id: int, body: ProjectPatch, session: Session) 
     return (await _with_counts(session, project_id))[0]
 
 
-@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{project_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)]
+)
 async def delete_project(project_id: int, session: Session) -> None:
     project = await get_or_404(session, Project, project_id)
     await session.delete(project)

@@ -26,6 +26,7 @@ test("manual run: create from a suite and record results", async ({ page }) => {
   await sheet.getByRole("button", { name: "Add result" }).click();
   await expect(sheet.getByTestId("run-results")).toContainText("Button is hidden on small screens");
   await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
 
   // Quick status from the row menu.
   await page.getByTestId("run-case-row").filter({ hasText: "Logout works" }).getByRole("button", { name: /Status:/ }).click();

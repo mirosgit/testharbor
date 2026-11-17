@@ -1,181 +1,124 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, KeyRound, Plus } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { ConfirmDialog, NameDialog } from "@/components/dialogs";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { timeAgo } from "@/components/runs/run-meta";
-import { api } from "@/lib/api";
-import type { ApiToken } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { api, ApiError } from "@/lib/api";
+import { useMe } from "@/lib/me";
 
-export default function SettingsPage() {
+const fail = (e: unknown) => toast.error(e instanceof ApiError ? e.message : "Something went wrong");
+
+export default function ProfilePage() {
   const qc = useQueryClient();
-  const { data: tokens, isLoading } = useQuery({ queryKey: ["tokens"], queryFn: api.tokens });
-  const { data: projects } = useQuery({ queryKey: ["projects"], queryFn: api.projects });
-  const [creating, setCreating] = useState(false);
-  const [created, setCreated] = useState<string | null>(null);
-  const [revoking, setRevoking] = useState<ApiToken | null>(null);
-  const [origin, setOrigin] = useState("https://testharbor.example.com");
-  useEffect(() => setOrigin(window.location.origin), []);
+  const { data: me } = useMe();
+  const [name, setName] = useState("");
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [repeat, setRepeat] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setName(me?.name ?? ""), [me?.name]);
 
-  const revoke = useMutation({
-    mutationFn: (id: number) => api.revokeToken(id),
-    onSuccess: () => {
-      toast.success("Token revoked");
-      qc.invalidateQueries({ queryKey: ["tokens"] });
-    },
-  });
-
-  const projectId = projects?.[0]?.id ?? 1;
-  const snippet = `pip install "git+https://github.com/mirosgit/testharbor.git#subdirectory=cli"
-
-export TESTHARBOR_URL=${origin}
-export TESTHARBOR_TOKEN=<your token>
-
-pytest --junitxml=report.xml
-testcli upload report.xml --project ${projectId} --run-name "Nightly" --auto-create`;
+  if (!me) return <Skeleton className="h-64" />;
 
   return (
-    <main className="h-full overflow-y-auto">
-      <div className="mx-auto grid max-w-4xl gap-10 p-8">
-        <h1 className="text-2xl font-semibold">Settings</h1>
-
-        <section className="grid gap-4">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold">API tokens</h2>
-              <p className="text-sm text-muted-foreground">
-                Use tokens in CI and scripts: <code className="rounded bg-muted px-1">Authorization: Bearer &lt;token&gt;</code>.
-                A token is shown only once, when it is created.
-              </p>
-            </div>
-            <Button size="sm" onClick={() => setCreating(true)}>
-              <Plus /> New token
-            </Button>
+    <div className="grid gap-10">
+      <section className="grid max-w-md gap-4">
+        <div>
+          <h2 className="text-lg font-semibold">Profile</h2>
+          <p className="text-sm text-muted-foreground">
+            {me.email} · <span className="capitalize">{me.role}</span>
+          </p>
+        </div>
+        <form
+          className="flex items-end gap-2"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            try {
+              qc.setQueryData(["me"], await api.updateProfile(name));
+              toast.success("Name saved");
+            } catch (err) {
+              fail(err);
+            }
+          }}
+        >
+          <div className="grid flex-1 gap-2">
+            <Label htmlFor="profile-name">Name</Label>
+            <Input id="profile-name" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-          {isLoading ? (
-            <Skeleton className="h-24" />
-          ) : !tokens?.length ? (
-            <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-              <KeyRound className="size-8" />
-              No tokens yet. Create one to upload results from CI.
-            </div>
-          ) : (
-            <div className="divide-y rounded-lg border" data-testid="tokens">
-              {tokens.map((t) => (
-                <div key={t.id} className={cn("flex items-center gap-4 px-4 py-3 text-sm", t.revoked_at && "opacity-50")}>
-                  <KeyRound className="size-4 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium">{t.name}</div>
-                    <div className="font-mono text-xs text-muted-foreground">{t.prefix}…</div>
-                  </div>
-                  <div className="text-right text-xs text-muted-foreground">
-                    <div>Created {timeAgo(t.created_at)}</div>
-                    <div>{t.last_used_at ? `Last used ${timeAgo(t.last_used_at)}` : "Never used"}</div>
-                  </div>
-                  {t.revoked_at ? (
-                    <span className="w-20 text-center text-xs text-muted-foreground">Revoked</span>
-                  ) : (
-                    <Button variant="outline" size="sm" className="w-20" onClick={() => setRevoking(t)}>
-                      Revoke
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+          <Button type="submit" variant="outline" disabled={!name.trim() || name === me.name}>
+            Save
+          </Button>
+        </form>
+      </section>
 
-        <section className="grid gap-3">
-          <h2 className="text-lg font-semibold">Connect your automated tests</h2>
-          <p className="text-sm text-muted-foreground">
-            Any framework that writes JUnit XML works (pytest, Playwright, Jest, JUnit/TestNG, Cypress…).
-            Tests are linked to cases by a <code className="rounded bg-muted px-1">C123</code> id in the test name or a{" "}
-            <code className="rounded bg-muted px-1">case_id</code> property, then by the case&apos;s automation key.
-            See <code className="rounded bg-muted px-1">docs/integration.md</code> in the repository for CI examples.
-          </p>
-          <CodeBlock code={snippet} />
-          <p className="text-sm text-muted-foreground">
-            API reference:{" "}
-            <a className="text-primary underline" href="/docs" target="_blank" rel="noreferrer">
-              {origin}/docs
-            </a>
-          </p>
-        </section>
-      </div>
+      <section className="grid max-w-md gap-4">
+        <div>
+          <h2 className="text-lg font-semibold">Change password</h2>
+          <p className="text-sm text-muted-foreground">You stay signed in here; other sessions are signed out.</p>
+        </div>
+        <form
+          className="grid gap-3"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (next !== repeat) return toast.error("New passwords don't match");
+            setBusy(true);
+            try {
+              qc.setQueryData(["me"], await api.changePassword(current, next));
+              toast.success("Password changed");
+              setCurrent("");
+              setNext("");
+              setRepeat("");
+            } catch (err) {
+              fail(err);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <div className="grid gap-2">
+            <Label htmlFor="pw-current">Current password</Label>
+            <Input id="pw-current" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="pw-new">New password</Label>
+            <Input id="pw-new" type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
+            <p className="text-xs text-muted-foreground">At least 10 characters.</p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="pw-repeat">Repeat new password</Label>
+            <Input id="pw-repeat" type="password" value={repeat} onChange={(e) => setRepeat(e.target.value)} autoComplete="new-password" />
+          </div>
+          <Button type="submit" className="justify-self-start" disabled={busy || !current || !next}>
+            Change password
+          </Button>
+        </form>
+      </section>
 
-      <NameDialog
-        open={creating}
-        onOpenChange={setCreating}
-        title="New API token"
-        description="Give it a name that says where it is used, e.g. “GitHub Actions”."
-        submitLabel="Create token"
-        onSubmit={async ({ name }) => {
-          const t = await api.createToken(name);
-          qc.invalidateQueries({ queryKey: ["tokens"] });
-          setCreated(t.token);
-        }}
-      />
-      <Dialog open={!!created} onOpenChange={(o) => !o && setCreated(null)}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Copy your token now</DialogTitle>
-            <DialogDescription>You won&apos;t be able to see it again. Store it as a CI secret.</DialogDescription>
-          </DialogHeader>
-          {created && <CodeBlock code={created} testId="new-token" />}
-          <DialogFooter>
-            <Button onClick={() => setCreated(null)}>Done</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <ConfirmDialog
-        open={!!revoking}
-        onOpenChange={(o) => !o && setRevoking(null)}
-        title={`Revoke “${revoking?.name}”?`}
-        description="Anything using this token will stop working immediately."
-        confirmLabel="Revoke"
-        onConfirm={() => revoke.mutate(revoking!.id)}
-      />
-    </main>
-  );
-}
-
-function CodeBlock({ code, testId }: { code: string; testId?: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="relative">
-      <pre
-        data-testid={testId}
-        className="overflow-x-auto rounded-lg border bg-muted/50 p-4 pr-12 font-mono text-[13px] leading-relaxed break-all whitespace-pre-wrap"
-      >
-        {code}
-      </pre>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="absolute top-2 right-2"
-        aria-label="Copy"
-        onClick={async () => {
-          await navigator.clipboard?.writeText(code);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        }}
-      >
-        {copied ? <Check /> : <Copy />}
-      </Button>
+      <section className="grid max-w-md gap-3">
+        <h2 className="text-lg font-semibold">Sessions</h2>
+        <p className="text-sm text-muted-foreground">
+          Signed in on a shared or lost device? Sign out everywhere except this browser.
+        </p>
+        <Button
+          variant="outline"
+          className="justify-self-start"
+          onClick={async () => {
+            try {
+              await api.logoutOthers();
+              toast.success("Other sessions signed out");
+            } catch (err) {
+              fail(err);
+            }
+          }}
+        >
+          Sign out other sessions
+        </Button>
+      </section>
     </div>
   );
 }

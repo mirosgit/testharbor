@@ -135,6 +135,7 @@ export interface TestRun {
   closed_at: string | null;
   created_at: string;
   updated_at: string;
+  created_by_name: string | null;
   stats: RunStats;
 }
 
@@ -152,6 +153,7 @@ export interface TestResult {
   duration_ms: number | null;
   error_message: string | null;
   stack_trace: string | null;
+  recorded_by: string | null;
   created_at: string;
 }
 
@@ -198,6 +200,8 @@ export interface CaseHistoryItem {
 
 export interface ApiToken {
   id: number;
+  user_id: number;
+  owner: string | null;
   name: string;
   prefix: string;
   created_at: string;
@@ -213,4 +217,46 @@ export interface JUnitImportResult {
   created: number;
   unmatched: { name: string; classname: string; reason: string }[];
   statuses: Record<string, number>;
+}
+
+export type Role = "admin" | "tester";
+
+export interface User {
+  id: number;
+  email: string;
+  name: string;
+  role: Role;
+  is_active: boolean;
+  last_login_at: string | null;
+  created_at: string;
+}
+
+export interface Me extends User {
+  via: "session" | "token";
+}
+
+export interface AdminUser extends User {
+  locked: boolean;
+}
+
+export interface Invite {
+  id: number;
+  purpose: "invite" | "reset";
+  email: string;
+  role: Role;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface InviteLink extends Invite {
+  token: string;
+  path: string;
+}
+
+export interface InviteInfo {
+  purpose: "invite" | "reset";
+  email: string;
+  role: Role;
+  name: string | null;
+  expires_at: string;
 }
