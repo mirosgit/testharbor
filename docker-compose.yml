@@ -27,6 +27,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
       SECRET_KEY: ${SECRET_KEY:-change-me-please}
       SEED_DEMO: ${SEED_DEMO:-true}
+      SECURE_COOKIES: ${SECURE_COOKIES:-false}
     depends_on:
       db:
         condition: service_healthy
@@ -49,5 +50,26 @@ services:
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
 
+  # Playwright smoke tests: docker compose --profile e2e run --rm e2e
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.65.1-noble
+    profiles: ["e2e"]
+    working_dir: /e2e
+    ipc: host
+    environment:
+      BASE_URL: http://frontend:3000
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      E2E_OUTPUT_DIR: /tmp/test-results
+      CI: "true"
+    volumes:
+      - ./frontend/e2e:/e2e
+      - e2e-node-modules:/e2e/node_modules
+    depends_on:
+      frontend:
+        condition: service_started
+    command: sh -c "npm ci --no-audit --no-fund --loglevel=error && npx playwright test"
+
 volumes:
   db-data:
+  e2e-node-modules:

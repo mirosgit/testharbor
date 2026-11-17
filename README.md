@@ -1,2 +1,153 @@
-# testharbor
-Lightweight open-source TestRail alternative. Test suites, cases and runs with first-class autotest integration: JUnit XML import, REST API, CLI and pytest plugin. Self-hosted with Docker.
+# TestHarbor
+
+TestHarbor is a lightweight, self-hosted, open-source alternative to TestRail. It holds test suites,
+test cases and test runs, and it integrates directly with automated tests. You can upload JUnit XML
+from any framework, link tests to cases with `C123` IDs, and see manual and CI results side by side.
+
+![Test cases](docs/screenshots/cases.png)
+
+| Test runs | A CI run with a failure |
+|---|---|
+| ![Runs](docs/screenshots/runs.png) | ![Run](docs/screenshots/run.png) |
+
+## Features
+
+- **Test cases in a tree.** Suites contain nested sections, and cases are listed on the right,
+  similar to TestRail. You can drag and drop cases, including several at once, between sections.
+- **Case editor.** It has a steps table (action and expected result), preconditions, priority,
+  type, tags and automation status. Text fields support Markdown.
+- **Search and filters.** Search by title or `C123`, and filter by tags, priority, type and
+  automation status.
+- **Manual test runs.** Create a run from a whole suite, from chosen sections, from the current
+  filter, or from selected cases. The run page shows a progress bar and per-status counts. Each
+  case can have several results; the most recent one is its current status. "Save & next untested"
+  moves you to the next case without a result.
+- **Run history per case.** Each case shows every run it was in and its result there.
+- **Import and export.** Cases can be imported and exported as CSV (spreadsheet-friendly) or JSON
+  (lossless).
+- **Automation**
+  - REST API with OpenAPI docs at `/docs`, plus API tokens.
+  - `POST /api/projects/{id}/runs/import-junit` accepts JUnit XML from pytest, Playwright, Jest,
+    JUnit/TestNG, Cypress and others.
+  - Tests are linked to cases by a case ID, then by automation key. Optionally, a case is created
+    automatically for any test that doesn't match.
+  - `testcli upload` CLI, which detects the branch, commit and build URL in CI.
+  - A pytest plugin with a `@pytest.mark.case("C142")` marker.
+- **Simple to run.** One `docker compose up`, with a single admin login. There are no roles to
+  configure.
+
+## Quick start
+
+```sh
+git clone https://github.com/mirosgit/testharbor.git
+cd testharbor
+docker compose up -d --build
+```
+
+Open **http://localhost:3000** and sign in as `admin` / `admin`. A demo project with about 30 cases
+and a few runs is created on first start.
+
+The API docs are at http://localhost:3000/docs. They are also served directly by the backend at
+http://localhost:8000/docs.
+
+### Configuration
+
+Copy `.env.example` to `.env` and adjust the values. Compose picks the file up automatically.
+
+| Variable | Default | |
+|---|---|---|
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `admin` | The single login. **Change the password** before exposing the app |
+| `SECRET_KEY` | `change-me-please` | Signs session cookies. Set it to a long random string |
+| `SEED_DEMO` | `true` | Creates the demo project when the database is empty |
+| `FRONTEND_PORT` / `BACKEND_PORT` / `DB_PORT` | `3000` / `8000` / `5433` | Host ports |
+
+Behind HTTPS, also set `SECURE_COOKIES=true` on the backend service.
+
+Data is kept in the `db-data` volume. `docker compose down` keeps your data, while
+`docker compose down -v` deletes it.
+
+## Connect your automated tests
+
+1. In TestHarbor, open **Settings › API tokens** and create a token.
+2. Link tests to cases. Put the case ID in the test name (`test_login_C142`) or in a `case_id`
+   property. With pytest you can use the marker instead:
+
+   ```python
+   @pytest.mark.case("C142")
+   def test_login(): ...
+   ```
+
+   Tests without an ID are matched by the case's **automation key**, for example
+   `tests/test_auth.py::test_login`. With `--auto-create`, unmatched tests become new cases.
+3. Upload the report from CI:
+
+   ```sh
+   pip install "git+https://github.com/mirosgit/testharbor.git#subdirectory=cli"
+   export TESTHARBOR_URL=https://testharbor.example.com TESTHARBOR_TOKEN=th_...
+
+   pytest --junitxml=reports/junit.xml
+   testcli upload reports/junit.xml --project 1 --run-name "Nightly #123" \
+     --branch main --commit abc123 --auto-create
+   ```
+
+   Without the CLI, use plain `curl`:
+
+   ```sh
+   curl -H "Authorization: Bearer $TESTHARBOR_TOKEN" -F "file=@reports/junit.xml" \
+     "$TESTHARBOR_URL/api/projects/1/runs/import-junit?run_name=Nightly&auto_create=true"
+   ```
+
+See **[docs/integration.md](docs/integration.md)** for the full matching rules and for Playwright,
+Jest, JUnit/TestNG and Cypress setup. Ready-to-copy CI configs:
+
+- [GitHub Actions](docs/ci/github-actions.yml)
+- [Bitbucket Pipelines](docs/ci/bitbucket-pipelines.yml)
+
+## Development
+
+```
+backend/    FastAPI, SQLAlchemy 2 (async), Alembic, PostgreSQL, pytest
+frontend/   Next.js (App Router), TypeScript, Tailwind, shadcn/ui, TanStack Query
+  e2e/      Playwright smoke tests
+cli/        testcli + pytest plugin (Python standard library only)
+docs/       integration guide, CI examples, PLAN.md (design decisions)
+```
+
+Each command below runs in Docker; the `Makefile` has shortcuts for them.
+
+| Command | |
+|---|---|
+| `make up` | Build and start the stack |
+| `make test-backend` | Backend tests (73), run in the backend container against `testharbor_test` |
+| `make test-cli` | CLI and pytest plugin tests (12) |
+| `make e2e` | Playwright smoke tests against the running stack |
+| `make junit-samples` | Regenerate the real pytest, Playwright and Surefire JUnit fixtures |
+
+To develop locally without Docker:
+- **Backend:** `cd backend && pip install -e ".[dev]"`, then
+  `DATABASE_URL=postgresql+asyncpg://testharbor:testharbor@localhost:5433/testharbor uvicorn app.main:app --reload`.
+- **Frontend:** `cd frontend && npm install && BACKEND_URL=http://localhost:8000 npm run dev`.
+
+Database changes go through Alembic:
+
+```sh
+alembic revision --autogenerate -m "..."
+```
+
+A test fails if the models and migrations drift apart.
+
+## Roadmap
+
+- [ ] Users and roles (viewer, tester, admin), plus SSO/OIDC
+- [ ] Case versioning, so results record which version of a case was run
+- [ ] Shared steps and case templates
+- [ ] Milestones and test plans that group runs
+- [ ] Reports: pass-rate trends, flaky test detection, coverage by section
+- [ ] Defects linked to Jira, GitHub and GitLab issues
+- [ ] Attachments (screenshots, Playwright traces) on results
+- [ ] Publish `testharbor-cli` to PyPI, and add an npm reporter for Playwright and Jest
+- [ ] Webhooks and Slack notifications when a run finishes
+
+## License
+
+[MIT](LICENSE)

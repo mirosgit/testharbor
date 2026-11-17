@@ -117,3 +117,5 @@ Enums:
 - **Phase 5.** Importing never changes existing cases. It does not overwrite automation keys or statuses.
 - **Phase 5.** The CLI uses only the standard library. It detects the branch, commit and build URL in GitHub, Bitbucket, GitLab and Jenkins. The pytest plugin ships in the same package and also writes each test's node id as `automation_key`.
 - **Phase 5.** The sample JUnit files are real reports, regenerated in containers by `backend/tests/fixtures/junit/generators/generate.sh`, so they contain no host details.
+- **Phase 6.** The Playwright smoke tests are a small standalone package in `frontend/e2e`, run with `docker compose --profile e2e run --rm e2e`. A global teardown deletes the data they create.
+- **Phase 6.** The backend logs a warning at startup when `SECRET_KEY` or `ADMIN_PASSWORD` still have their default values.
