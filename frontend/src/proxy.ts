@@ -14,5 +14,5 @@ export function proxy(req: NextRequest) {
 
 export const config = {
   // Everything except the login page, API/docs proxies and static assets.
-  matcher: ["/((?!login|api|docs|openapi.json|_next|favicon.ico|.*\\.[a-z0-9]+$).*)"],
+  matcher: ["/((?!login|invite/|api|docs|openapi.json|_next|favicon.ico|.*\\.[a-z0-9]+$).*)"],
 };

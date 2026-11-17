@@ -5,7 +5,7 @@ import { ADMIN, unique } from "./helpers";
 test("log in, create a project, suite, section and case", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/login/);
-  await page.getByLabel("Username").fill(ADMIN.username);
+  await page.getByLabel("Email").fill(ADMIN.email);
   await page.getByLabel("Password").fill(ADMIN.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();

@@ -56,8 +56,9 @@ services:
     ipc: host
     environment:
       BASE_URL: http://frontend:3000
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      # Set by `make e2e`, which creates/updates this admin with a random password.
+      E2E_EMAIL: ${E2E_EMAIL:-e2e-admin@testharbor.local}
+      E2E_PASSWORD: ${E2E_PASSWORD:-}
       E2E_OUTPUT_DIR: /tmp/test-results
       CI: "true"
     volumes:
