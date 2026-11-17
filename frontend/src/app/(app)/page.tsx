@@ -16,11 +16,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { useIsAdmin } from "@/lib/me";
 import type { Project } from "@/lib/types";
 
 export default function ProjectsPage() {
   const qc = useQueryClient();
   const { data: projects, isLoading } = useQuery({ queryKey: ["projects"], queryFn: api.projects });
+  const isAdmin = useIsAdmin();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Project | null>(null);
   const [deleting, setDeleting] = useState<Project | null>(null);
@@ -74,9 +76,11 @@ export default function ProjectsPage() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onSelect={() => setEditing(p)}>Edit</DropdownMenuItem>
-                    <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(p)}>
-                      Delete
-                    </DropdownMenuItem>
+                    {isAdmin && (
+                      <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(p)}>
+                        Delete
+                      </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>

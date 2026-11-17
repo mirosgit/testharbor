@@ -220,7 +220,10 @@ export function ResultItem({ r }: { r: TestResult }) {
         {r.duration_ms != null && (
           <span className="text-xs text-muted-foreground">{(r.duration_ms / 1000).toFixed(2)}s</span>
         )}
-        <span className="ml-auto text-xs text-muted-foreground">{new Date(r.created_at).toLocaleString()}</span>
+        <span className="ml-auto text-xs text-muted-foreground">
+          {r.recorded_by && <>{r.recorded_by} · </>}
+          {new Date(r.created_at).toLocaleString()}
+        </span>
       </div>
       {r.error_message && (
         <p className="mt-2 font-mono text-xs break-words whitespace-pre-wrap text-status-failed">{r.error_message}</p>

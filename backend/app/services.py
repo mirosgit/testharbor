@@ -194,9 +194,11 @@ async def add_cases_to_run(session: AsyncSession, run_id: int, case_ids: list[in
     return len((await session.execute(stmt)).all())
 
 
-async def record_result(session: AsyncSession, run_id: int, data: ResultIn) -> TestResult:
+async def record_result(
+    session: AsyncSession, run_id: int, data: ResultIn, user_id: int | None = None
+) -> TestResult:
     """Append a result and make it the case's current status in the run."""
-    result = TestResult(run_id=run_id, **data.model_dump())
+    result = TestResult(run_id=run_id, user_id=user_id, **data.model_dump())
     session.add(result)
     stmt = pg_insert(RunCase).values(run_id=run_id, case_id=data.case_id, status=data.status)
     await session.execute(

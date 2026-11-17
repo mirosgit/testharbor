@@ -119,3 +119,105 @@ Enums:
 - **Phase 5.** The sample JUnit files are real reports, regenerated in containers by `backend/tests/fixtures/junit/generators/generate.sh`, so they contain no host details.
 - **Phase 6.** The Playwright smoke tests are a small standalone package in `frontend/e2e`, run with `docker compose --profile e2e run --rm e2e`. A global teardown deletes the data they create.
 - **Phase 6.** The backend logs a warning at startup when `SECRET_KEY` or `ADMIN_PASSWORD` still have their default values.
+
+---
+
+# Phase 7: users, roles and invites (production access for teams)
+
+Decisions:
+- **One instance per company.** There is no multi-tenancy. All users of an instance see all of its projects.
+- **Testers are added with invite links.** No SMTP is needed.
+- **Two roles.** Admin and Tester.
+
+## Data model (one new migration)
+
+| Table | Fields |
+|---|---|
+| `users` | id, email (unique, lowercased), name, password_hash (**argon2id**), role `admin`/`tester`, is_active, session_version, failed_logins, locked_until, last_login_at, created_at |
+| `invites` | id, email, role, token_hash (sha256), purpose `invite`/`reset`, created_by, expires_at (72 h), used_at, revoked_at |
+| `api_tokens` | + `user_id`. A token acts as its owner with the owner's role and stops working when the owner is deactivated. Tokens that already exist are **deleted** by the migration, because they have no owner. |
+| `test_results` | + `user_id`, so results show who recorded them. Results from CI uploads show the token owner. |
+| `test_runs` | + `created_by_id` |
+
+## Auth and security
+
+- **First admin.** It is created **only** with a command on the server:
+  ```
+  docker compose exec backend python -m app.manage create-admin
+  ```
+  The command asks for the email, name and password interactively. `--password-stdin` is available for scripts.
+  - There are no admin credentials in `.env` and no "first visitor becomes admin" setup page.
+  - Until the first admin exists, the login page shows this command.
+  - Recovery commands: `manage reset-password`, `manage unlock` and `manage list-users`.
+- **Login.** Login is by email and password.
+  - Hashing uses argon2id.
+  - Unknown emails still go through a dummy hash check, so response timing doesn't reveal which emails exist.
+  - The error message is always the same generic one.
+- **Brute-force protection.**
+  - After 5 failed attempts, the account is locked for 15 minutes.
+  - On top of that, each IP gets a limit of about 20 attempts per minute, kept in memory.
+- **Sessions.**
+  - The signed cookie contains `{uid, session_version}` and is checked against the database on every request.
+  - Changing a password, using "sign out of all sessions", or deactivating a user takes effect immediately, because each bumps `session_version`.
+  - Cookies are httpOnly and SameSite=Lax. They also get the Secure flag when `SECURE_COOKIES=true`.
+- **Invites and password resets.** Both are one-time links: the token is stored only as a hash, expires after 72 hours, and is used once. An admin can revoke a link.
+  - Password reset without SMTP: the admin clicks "Reset password", gets a link and sends it to the tester themselves.
+- **Password policy.** At least 10 characters, and not the same as the email.
+- **Security headers** (Next.js): `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`, and a basic CSP. HSTS is set by the reverse proxy.
+
+## Permissions
+
+| Action | Admin | Tester |
+|---|---|---|
+| Cases, suites, sections, import/export | ✓ | ✓ |
+| Runs, results, JUnit upload | ✓ | ✓ |
+| Own API tokens | ✓ | ✓ |
+| Delete projects | ✓ | – |
+| Users: invite, change role, deactivate, reset password | ✓ | – |
+| See and revoke other users' tokens | ✓ | – |
+
+An admin cannot demote or deactivate themselves. The system always keeps at least one active admin.
+
+## UI
+
+- The login page asks for an email.
+- `/invite/<token>` lets the invited person enter a name and a password, then logs them in.
+- **Settings › Users** (admin only):
+  - a list showing role, status and last login
+  - "Invite user", which gives a link to copy
+  - pending invites, with revoke
+  - change role, deactivate or reactivate, reset password
+- **Settings › Profile**: change name or password, and "sign out of all sessions".
+- The UI shows who did what: the header shows the current user, results show who recorded them, and runs show who created them.
+
+## Deployment (`docs/deployment.md`)
+
+- `docker-compose.prod.yml` adds **Caddy**, which gets HTTPS certificates automatically from Let's Encrypt for your domain. Only ports 80 and 443 are open to the outside; the database and backend are only reachable inside the server.
+- A checklist: generate `SECRET_KEY`, set `SECURE_COOKIES=true`, set the admin password, configure the firewall.
+- Backups with `pg_dump` on a cron schedule, plus restore steps.
+- How to update to a new version (`git pull` + `docker compose up -d --build`; migrations run on startup).
+
+## Breaking change for current installs
+
+`ADMIN_USERNAME` and `ADMIN_PASSWORD` are removed. After updating, run `manage create-admin`. Existing API tokens are deleted by the migration.
+
+- Managing tokens, users and invites, and changing your password, require a browser session. An API token cannot do these things, so a leaked CI token can't create new tokens.
+- `make e2e` creates or updates an `e2e-admin@testharbor.local` account with a random password on every run.
+
+## Steps (one commit each)
+
+- **7a. Backend:** the migration, users and invites, roles on every endpoint, sessions, lockout, the `manage` CLI, and tests:
+  - permissions for each role
+  - invite expiry and one-time use
+  - lockout
+  - sessions being invalidated
+  - a deactivated user's tokens stopping working
+- **7b. Frontend:** login, invite acceptance, Users and Profile pages, "who did it" in the UI, security headers, and updated e2e tests including the invite flow.
+- **7c. Deployment:** `docker-compose.prod.yml` with Caddy, `docs/deployment.md`, and README updates.
+
+## Notes from implementing Phase 7
+
+- **Per-IP login limit.** It needs a reverse proxy to see real client IPs. Next.js rewrites forward the client's own `X-Forwarded-For` unchanged and don't add one of their own.
+  - Without a reverse proxy, every request appears to come from the frontend container. This only weakens the per-IP limit; the per-account lockout still works.
+  - In production, Caddy overwrites `X-Forwarded-For` with the real client IP. The prod compose file publishes only Caddy's ports.
+- **Session lifetime.** Sessions now last 14 days instead of 30.

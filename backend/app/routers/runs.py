@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import CurrentPrincipal
 from app.db import get_session
 from app.models import (
     Project,
@@ -15,6 +16,7 @@ from app.models import (
     TestCase,
     TestResult,
     TestRun,
+    User,
 )
 from app.schemas import (
     BulkResultsIn,
@@ -65,7 +67,8 @@ def _latest_results(run_ids: list[int] | None = None, case_id: int | None = None
         ranked = ranked.where(TestResult.run_id.in_(run_ids))
     if case_id is not None:
         ranked = ranked.where(TestResult.case_id == case_id)
-    return ranked.subquery()
+    sub = ranked.subquery()
+    return sub
 
 
 def _result_from_row(row) -> ResultOut | None:  # type: ignore[no-untyped-def]
@@ -80,6 +83,7 @@ def _result_from_row(row) -> ResultOut | None:  # type: ignore[no-untyped-def]
         duration_ms=row.duration_ms,
         error_message=row.error_message,
         stack_trace=row.stack_trace,
+        recorded_by=getattr(row, "recorded_by", None),
         created_at=row.created_at,
     )
 
@@ -116,17 +120,22 @@ async def list_runs(
 
 
 @router.post("/projects/{project_id}/runs", response_model=RunOut, status_code=status.HTTP_201_CREATED)
-async def create_run(project_id: int, body: RunIn, session: Session) -> RunOut:
+async def create_run(project_id: int, body: RunIn, session: Session, principal: CurrentPrincipal) -> RunOut:
     """Create a manual run. Cases come from `case_ids`, `suite_id`, `section_ids` and/or `filter`."""
     await get_or_404(session, Project, project_id)
     case_ids = await resolve_selection(session, project_id, body)
     run = TestRun(
-        project_id=project_id, name=body.name, description=body.description, source=RunSource.manual
+        project_id=project_id,
+        name=body.name,
+        description=body.description,
+        source=RunSource.manual,
+        created_by_id=principal.user.id,
     )
     session.add(run)
     await session.flush()
     await add_cases_to_run(session, run.id, case_ids)
     await session.commit()
+    await session.refresh(run, ["created_by"])
     return await run_out(session, run)
 
 
@@ -169,9 +178,10 @@ async def list_run_cases(
     await get_or_404(session, TestRun, run_id)
     latest = _latest_results(run_ids=[run_id])
     stmt = (
-        select(RunCase.status.label("current"), TestCase, latest)
+        select(RunCase.status.label("current"), TestCase, latest, User.name.label("recorded_by"))
         .join(TestCase, TestCase.id == RunCase.case_id)
         .outerjoin(latest, (latest.c.case_id == RunCase.case_id) & (latest.c.rn == 1))
+        .outerjoin(User, User.id == latest.c.user_id)
         .where(RunCase.run_id == run_id)
     )
     if status_:
@@ -250,25 +260,32 @@ async def _check_members(session: AsyncSession, run_id: int, case_ids: set[int])
 
 
 @router.post("/runs/{run_id}/results", response_model=ResultOut, status_code=status.HTTP_201_CREATED)
-async def add_result(run_id: int, body: ResultIn, session: Session) -> TestResult:
+async def add_result(
+    run_id: int, body: ResultIn, session: Session, principal: CurrentPrincipal
+) -> TestResult:
     """Record a result for a case in the run. It becomes the case's current status."""
     run = await get_or_404(session, TestRun, run_id)
     ensure_open(run)
     await _check_members(session, run_id, {body.case_id})
-    result = await record_result(session, run_id, body)
+    result = await record_result(session, run_id, body, principal.user.id)
     await session.commit()
+    await session.refresh(result, ["user"])
     return result
 
 
 @router.post(
     "/runs/{run_id}/results/bulk", response_model=list[ResultOut], status_code=status.HTTP_201_CREATED
 )
-async def add_results_bulk(run_id: int, body: BulkResultsIn, session: Session) -> list[TestResult]:
+async def add_results_bulk(
+    run_id: int, body: BulkResultsIn, session: Session, principal: CurrentPrincipal
+) -> list[TestResult]:
     run = await get_or_404(session, TestRun, run_id)
     ensure_open(run)
     await _check_members(session, run_id, {r.case_id for r in body.results})
-    results = [await record_result(session, run_id, r) for r in body.results]
+    results = [await record_result(session, run_id, r, principal.user.id) for r in body.results]
     await session.commit()
+    for r in results:
+        await session.refresh(r, ["user"])
     return results
 
 
@@ -292,9 +309,10 @@ async def case_history(
     case = await get_or_404(session, TestCase, parse_case_ref(case_ref))
     latest = _latest_results(case_id=case.id)
     rows = await session.execute(
-        select(TestRun, RunCase.status.label("current"), latest)
+        select(TestRun, RunCase.status.label("current"), latest, User.name.label("recorded_by"))
         .join(RunCase, (RunCase.run_id == TestRun.id) & (RunCase.case_id == case.id))
         .outerjoin(latest, (latest.c.run_id == TestRun.id) & (latest.c.rn == 1))
+        .outerjoin(User, User.id == latest.c.user_id)
         .order_by(TestRun.created_at.desc(), TestRun.id.desc())
         .limit(limit)
     )

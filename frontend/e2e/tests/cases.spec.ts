@@ -5,7 +5,7 @@ import { ADMIN, unique } from "./helpers";
 test("log in, create a project, suite, section and case", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/login/);
-  await page.getByLabel("Username").fill(ADMIN.username);
+  await page.getByLabel("Email").fill(ADMIN.email);
   await page.getByLabel("Password").fill(ADMIN.password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
@@ -36,11 +36,13 @@ test("log in, create a project, suite, section and case", async ({ page }) => {
   await expect(sheet.getByRole("heading", { name: "Pay with a saved card" })).toBeVisible();
   await expect(sheet.getByText("Order confirmation is shown")).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden(); // focus is trapped in the sheet until it has closed
 
   const row = page.getByTestId("case-row").filter({ hasText: "Pay with a saved card" });
   await expect(row).toBeVisible();
 
   // Search narrows the list.
   await page.getByLabel("Search cases").fill("nothing like this");
+  await expect(page.getByLabel("Search cases")).toHaveValue("nothing like this");
   await expect(page.getByText("No cases match the filters.")).toBeVisible();
 });

@@ -45,8 +45,9 @@ export function CaseHistory({ caseId, projectId }: { caseId: number; projectId: 
                   {h.branch}
                 </span>
               )}
-              <span className="shrink-0 text-xs text-muted-foreground">
+              <span className="shrink-0 text-right text-xs text-muted-foreground">
                 {new Date(h.last_result?.created_at ?? h.run_created_at).toLocaleDateString()}
+                {h.last_result?.recorded_by && <span className="block">{h.last_result.recorded_by}</span>}
               </span>
             </li>
           ))}

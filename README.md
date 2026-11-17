@@ -33,8 +33,11 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
     automatically for any test that doesn't match.
   - `testcli upload` CLI, which detects the branch, commit and build URL in CI.
   - A pytest plugin with a `@pytest.mark.case("C142")` marker.
-- **Simple to run.** One `docker compose up`, with a single admin login. There are no roles to
-  configure.
+- **Team accounts.** Testers are invited with one-time links. There are two roles, Admin and
+  Tester. Passwords are hashed with argon2id, sign-ins are locked after repeated failures, and
+  sessions can be revoked instantly. Results record who executed them.
+- **Simple to run.** One `docker compose up` for local use, and HTTPS through Caddy on your own
+  server (see [docs/deployment.md](docs/deployment.md)).
 
 ## Quick start
 
@@ -44,8 +47,17 @@ cd testharbor
 docker compose up -d --build
 ```
 
-Open **http://localhost:3000** and sign in as `admin` / `admin`. A demo project with about 30 cases
-and a few runs is created on first start.
+Create your admin account (the command asks for an email, name and password):
+
+```sh
+docker compose exec backend python -m app.manage create-admin
+```
+
+Open **http://localhost:3000** and sign in. A demo project with about 30 cases and a few runs is
+created on first start. Invite your testers from **Settings › Users**.
+
+**On a server for your team**, follow **[docs/deployment.md](docs/deployment.md)**. It covers HTTPS
+on your domain, the security checklist, backups and updates.
 
 The API docs are at http://localhost:3000/docs. They are also served directly by the backend at
 http://localhost:8000/docs.
@@ -56,19 +68,21 @@ Copy `.env.example` to `.env` and adjust the values. Compose picks the file up a
 
 | Variable | Default | |
 |---|---|---|
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `admin` | The single login. **Change the password** before exposing the app |
-| `SECRET_KEY` | `change-me-please` | Signs session cookies. Set it to a long random string |
+| `SECRET_KEY` | `change-me-please` | Signs session cookies. Set it to a long random string (`openssl rand -hex 32`) |
+| `DB_PASSWORD` | `testharbor` | Postgres password. Only applied when the database volume is first created |
 | `SEED_DEMO` | `true` | Creates the demo project when the database is empty |
-| `FRONTEND_PORT` / `BACKEND_PORT` / `DB_PORT` | `3000` / `8000` / `5433` | Host ports |
+| `FRONTEND_PORT` / `BACKEND_PORT` / `DB_PORT` | `3000` / `8000` / `5433` | Host ports for local use |
+| `DOMAIN` | — | Production only: the domain Caddy serves over HTTPS |
 
-Behind HTTPS, also set `SECURE_COOKIES=true` on the backend service.
+User accounts are not configured through environment variables. Create admins with
+`python -m app.manage create-admin`, and invite everyone else from the UI.
 
 Data is kept in the `db-data` volume. `docker compose down` keeps your data, while
 `docker compose down -v` deletes it.
 
 ## Connect your automated tests
 
-1. In TestHarbor, open **Settings › API tokens** and create a token.
+1. In TestHarbor, open **Settings › API tokens** and create a token. It acts as you.
 2. Link tests to cases. Put the case ID in the test name (`test_login_C142`) or in a `case_id`
    property. With pytest you can use the marker instead:
 
@@ -118,7 +132,8 @@ Each command below runs in Docker; the `Makefile` has shortcuts for them.
 | Command | |
 |---|---|
 | `make up` | Build and start the stack |
-| `make test-backend` | Backend tests (73), run in the backend container against `testharbor_test` |
+| `make admin` | Create an admin account (interactive) |
+| `make test-backend` | Backend tests (94), run in the backend container against `testharbor_test` |
 | `make test-cli` | CLI and pytest plugin tests (12) |
 | `make e2e` | Playwright smoke tests against the running stack |
 | `make junit-samples` | Regenerate the real pytest, Playwright and Surefire JUnit fixtures |
@@ -138,7 +153,9 @@ A test fails if the models and migrations drift apart.
 
 ## Roadmap
 
-- [ ] Users and roles (viewer, tester, admin), plus SSO/OIDC
+- [x] User accounts, Admin and Tester roles, invite links
+- [ ] Read-only Viewer role, SSO/OIDC, two-factor authentication, email (SMTP) invites and password resets
+- [ ] Audit log of admin actions
 - [ ] Case versioning, so results record which version of a case was run
 - [ ] Shared steps and case templates
 - [ ] Milestones and test plans that group runs
