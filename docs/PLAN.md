@@ -111,3 +111,9 @@ Enums:
 - **Phase 4.** Runs can be created from selected cases, the current view (section and filters), a whole suite, or picked sections. Selections are combined server-side.
 - **Phase 4.** The run page has quick status buttons per row, bulk status changes, and an execution side panel. "Save & next untested" moves to the next case that has no result. A closed run is read-only and can be reopened.
 - **Phase 4.** Extra API beyond the spec: add cases to a run, remove a case from a run, and post results in bulk.
+- **Phase 5.** One upload can contain several files (repeat the `file` field), and they all go into one run. `run_id` appends to an existing open run.
+- **Phase 5.** When several tests map to one case in an upload (for example parametrized tests), every result is stored. The worst status is written last, so it becomes the current status. Each result's comment holds the test name.
+- **Phase 5.** A test whose case ID belongs to another project is reported as unmatched, with the reason.
+- **Phase 5.** Importing never changes existing cases. It does not overwrite automation keys or statuses.
+- **Phase 5.** The CLI uses only the standard library. It detects the branch, commit and build URL in GitHub, Bitbucket, GitLab and Jenkins. The pytest plugin ships in the same package and also writes each test's node id as `automation_key`.
+- **Phase 5.** The sample JUnit files are real reports, regenerated in containers by `backend/tests/fixtures/junit/generators/generate.sh`, so they contain no host details.
