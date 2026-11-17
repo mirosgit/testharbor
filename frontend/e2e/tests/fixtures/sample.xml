@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="pytest" tests="2" failures="1">
+    <testcase classname="tests.test_auth" name="test_login_C_ID" time="0.12">
+      <failure message="AssertionError: expected 200, got 500">assert 500 == 200</failure>
+    </testcase>
+    <testcase classname="tests.test_auth" name="test_new_thing" time="0.05"/>
+  </testsuite>
+</testsuites>
