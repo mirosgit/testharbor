@@ -1,5 +1,12 @@
 import type {
   CaseFilter,
+  CaseHistoryItem,
+  ResultInput,
+  RunCase,
+  RunList,
+  RunSelection,
+  TestResult,
+  TestRun,
   CaseInput,
   CaseList,
   ImportResult,
@@ -49,7 +56,7 @@ const json = (method: string, body?: unknown): RequestInit => ({
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 
-export function filterParams(f: CaseFilter): URLSearchParams {
+export function filterParams(f: object): URLSearchParams {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(f)) {
     if (v === undefined || v === null || v === "") continue;
@@ -110,4 +117,25 @@ export const api = {
   },
   exportUrl: (suiteId: number, format: "csv" | "json") =>
     `/api/suites/${suiteId}/export?format=${format}`,
+
+  runs: (projectId: number, params: { closed?: boolean; limit?: number; offset?: number } = {}) =>
+    request<RunList>(`/api/projects/${projectId}/runs?${filterParams(params)}`),
+  run: (id: number) => request<TestRun>(`/api/runs/${id}`),
+  createRun: (projectId: number, body: RunSelection & { name: string; description?: string }) =>
+    request<TestRun>(`/api/projects/${projectId}/runs`, json("POST", body)),
+  updateRun: (id: number, body: { name?: string; description?: string; closed?: boolean }) =>
+    request<TestRun>(`/api/runs/${id}`, json("PATCH", body)),
+  deleteRun: (id: number) => request<void>(`/api/runs/${id}`, json("DELETE")),
+  runCases: (id: number) => request<RunCase[]>(`/api/runs/${id}/cases`),
+  addRunCases: (id: number, sel: RunSelection) =>
+    request<TestRun>(`/api/runs/${id}/cases`, json("POST", sel)),
+  removeRunCase: (id: number, caseId: number) =>
+    request<void>(`/api/runs/${id}/cases/${caseId}`, json("DELETE")),
+  addResult: (runId: number, body: ResultInput) =>
+    request<TestResult>(`/api/runs/${runId}/results`, json("POST", body)),
+  addResults: (runId: number, results: ResultInput[]) =>
+    request<TestResult[]>(`/api/runs/${runId}/results/bulk`, json("POST", { results })),
+  caseResultsInRun: (runId: number, caseId: number) =>
+    request<TestResult[]>(`/api/runs/${runId}/cases/${caseId}/results`),
+  caseHistory: (caseId: number) => request<CaseHistoryItem[]>(`/api/cases/${caseId}/history`),
 };

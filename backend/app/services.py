@@ -7,11 +7,12 @@ from typing import TypeVar
 
 from fastapi import HTTPException, status
 from sqlalchemy import Select, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Base, Section, TestCase
-from app.schemas import CaseFilter
+from app.models import Base, RunCase, Section, TestCase, TestResult, TestRun
+from app.schemas import CaseFilter, ResultIn, RunSelection, RunStats
 
 M = TypeVar("M", bound=Base)
 
@@ -139,3 +140,91 @@ async def filtered_cases_query(
     if f.automation_status:
         stmt = stmt.where(TestCase.automation_status.in_(f.automation_status))
     return stmt
+
+
+# --- Runs ----------------------------------------------------------------------------
+
+
+async def resolve_selection(session: AsyncSession, project_id: int, sel: RunSelection) -> list[int]:
+    """Case ids in the project matched by any of the selectors (union)."""
+    ids: set[int] = set()
+    if sel.case_ids:
+        found = set(
+            await session.scalars(
+                select(TestCase.id).where(
+                    TestCase.id.in_(sel.case_ids), TestCase.project_id == project_id
+                )
+            )
+        )
+        missing = sorted(set(sel.case_ids) - found)
+        if missing:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Cases not found in this project: {', '.join(f'C{i}' for i in missing)}",
+            )
+        ids |= found
+    if sel.suite_id is not None:
+        ids |= set(
+            await session.scalars(
+                select(TestCase.id).where(
+                    TestCase.suite_id == sel.suite_id, TestCase.project_id == project_id
+                )
+            )
+        )
+    for section_id in sel.section_ids:
+        f = CaseFilter(section_id=section_id, include_subsections=True)
+        stmt = await filtered_cases_query(session, project_id, f)
+        ids |= set(await session.scalars(stmt.with_only_columns(TestCase.id)))
+    if sel.filter is not None:
+        stmt = await filtered_cases_query(session, project_id, sel.filter)
+        ids |= set(await session.scalars(stmt.with_only_columns(TestCase.id)))
+    return sorted(ids)
+
+
+async def add_cases_to_run(session: AsyncSession, run_id: int, case_ids: list[int]) -> int:
+    """Add memberships (ignoring ones that exist). Returns how many were new."""
+    if not case_ids:
+        return 0
+    stmt = (
+        pg_insert(RunCase)
+        .values([{"run_id": run_id, "case_id": cid} for cid in case_ids])
+        .on_conflict_do_nothing()
+        .returning(RunCase.case_id)
+    )
+    return len((await session.execute(stmt)).all())
+
+
+async def record_result(session: AsyncSession, run_id: int, data: ResultIn) -> TestResult:
+    """Append a result and make it the case's current status in the run."""
+    result = TestResult(run_id=run_id, **data.model_dump())
+    session.add(result)
+    stmt = pg_insert(RunCase).values(run_id=run_id, case_id=data.case_id, status=data.status)
+    await session.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[RunCase.run_id, RunCase.case_id],
+            set_={"status": stmt.excluded.status, "updated_at": func.now()},
+        )
+    )
+    await session.flush()
+    return result
+
+
+async def run_stats(session: AsyncSession, run_ids: list[int]) -> dict[int, RunStats]:
+    out = {rid: RunStats() for rid in run_ids}
+    if not run_ids:
+        return out
+    rows = await session.execute(
+        select(RunCase.run_id, RunCase.status, func.count())
+        .where(RunCase.run_id.in_(run_ids))
+        .group_by(RunCase.run_id, RunCase.status)
+    )
+    for rid, st, n in rows:
+        stats = out[rid]
+        setattr(stats, st.value, n)
+        stats.total += n
+    return out
+
+
+def ensure_open(run: TestRun) -> None:
+    if run.closed:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Run is closed; reopen it to change results")

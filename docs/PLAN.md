@@ -108,3 +108,6 @@ Enums:
 - **Phase 3.** Reorder steps with the up and down buttons. Drag-and-drop is only used for moving cases.
 - **Phase 3.** Drag a case onto a tree node or a group header to move it to that section, or onto a row to put it at that position. If the dragged case is selected, all selected cases move together.
 - **Phase 3.** The `cn` import that the shadcn CLI wrote was rewritten to `@/lib/utils`. The CLI had added an unrelated npm package named `cn`, which was removed.
+- **Phase 4.** Runs can be created from selected cases, the current view (section and filters), a whole suite, or picked sections. Selections are combined server-side.
+- **Phase 4.** The run page has quick status buttons per row, bulk status changes, and an execution side panel. "Save & next untested" moves to the next case that has no result. A closed run is read-only and can be reopened.
+- **Phase 4.** Extra API beyond the spec: add cases to a run, remove a case from a run, and post results in bulk.

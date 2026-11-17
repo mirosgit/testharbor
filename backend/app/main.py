@@ -1,7 +1,7 @@
 from fastapi import Depends, FastAPI
 
 from app.auth import require_auth
-from app.routers import auth, cases, io, projects, sections, suites
+from app.routers import auth, cases, io, projects, runs, sections, suites
 
 app = FastAPI(
     title="TestHarbor API",
@@ -22,5 +22,5 @@ async def health() -> dict[str, str]:
 
 app.include_router(auth.router)
 protected = [Depends(require_auth)]
-for module in (projects, suites, sections, cases, io):
+for module in (projects, suites, sections, cases, io, runs):
     app.include_router(module.router, dependencies=protected)
