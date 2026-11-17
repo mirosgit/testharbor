@@ -80,6 +80,7 @@ export interface TestCase {
   tags: string[];
   automation_status: AutomationStatus;
   automation_key: string | null;
+  external_id: string | null;
   position: number;
   created_at: string;
   updated_at: string;
@@ -87,7 +88,7 @@ export interface TestCase {
 
 export type CaseInput = Omit<
   TestCase,
-  "id" | "key" | "project_id" | "suite_id" | "position" | "created_at" | "updated_at"
+  "id" | "key" | "project_id" | "suite_id" | "position" | "created_at" | "updated_at" | "external_id"
 >;
 
 export interface CaseList {
@@ -110,6 +111,15 @@ export interface ImportResult {
   updated: number;
   sections_created: number;
   errors: string[];
+  warnings: string[];
+  ignored_columns: string[];
+  section_id: number | null;
+}
+
+export interface ImportTarget {
+  section_id?: number;
+  new_section?: string;
+  keep_paths: boolean;
 }
 
 export interface RunStats {

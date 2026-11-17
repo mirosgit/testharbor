@@ -24,7 +24,10 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
   moves you to the next case without a result.
 - **Run history per case.** Each case shows every run it was in and its result there.
 - **Import and export.** Cases can be imported and exported as CSV (spreadsheet-friendly) or JSON
-  (lossless).
+  (lossless). Import also reads **BrowserStack Test Management and TestRail CSV exports**:
+  - Folders become sections. You choose the target section, or a new one.
+  - Their IDs (`TC-770`) are kept, so re-importing updates cases instead of duplicating them.
+  - Columns or values that can't be mapped are listed after the import, not silently dropped.
 - **Automation**
   - REST API with OpenAPI docs at `/docs`, plus API tokens.
   - `POST /api/projects/{id}/runs/import-junit` accepts JUnit XML from pytest, Playwright, Jest,

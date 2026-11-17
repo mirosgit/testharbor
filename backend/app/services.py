@@ -126,7 +126,10 @@ async def filtered_cases_query(
             stmt = stmt.where(TestCase.section_id == f.section_id)
     if f.q and f.q.strip():
         q = f.q.strip()
-        cond = TestCase.title.ilike(f"%{_escape_like(q)}%", escape="\\")
+        cond = or_(
+            TestCase.title.ilike(f"%{_escape_like(q)}%", escape="\\"),
+            func.lower(TestCase.external_id) == q.lower(),
+        )
         m = CASE_REF.match(q)
         if m:
             cond = or_(cond, TestCase.id == int(m.group(1)))

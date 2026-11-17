@@ -255,7 +255,7 @@ function CasesWorkspace() {
   // --- Render -------------------------------------------------------------------------
   if (suitesQ.isLoading) {
     return (
-      <div className="grid h-full grid-cols-[280px_1fr]">
+      <div className="grid h-full grid-cols-[280px_minmax(0,1fr)]">
         <div className="border-r p-3">
           <Skeleton className="h-8" />
         </div>
@@ -281,7 +281,7 @@ function CasesWorkspace() {
 
   return (
     <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragIds([])}>
-      <div className="grid h-full grid-cols-[280px_1fr]">
+      <div className="grid h-full grid-cols-[280px_minmax(0,1fr)]">
         {/* Left: suite picker + section tree */}
         <aside className="flex min-h-0 flex-col border-r bg-muted/20">
           <div className="flex items-center gap-1 border-b p-2">
@@ -530,10 +530,17 @@ function CasesWorkspace() {
             }}
           />
           <ImportDialog
+            key={`import-${dialog?.kind === "import"}`}
             open={dialog?.kind === "import"}
             onOpenChange={(o) => !o && close()}
             suiteId={suiteId}
-            onImported={refresh}
+            sections={flat}
+            paths={paths}
+            defaultSectionId={sectionId}
+            onImported={(r) => {
+              refresh();
+              if (r.section_id) setParams({ section: r.section_id, case: null });
+            }}
           />
           <MoveDialog
             open={dialog?.kind === "move"}

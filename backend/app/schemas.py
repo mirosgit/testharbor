@@ -203,6 +203,7 @@ def _clean_key(v: str | None) -> str | None:
 
 Tags = Annotated[list[str], AfterValidator(_clean_tags)]
 AutomationKey = Annotated[str | None, Field(max_length=1000), AfterValidator(_clean_key)]
+ExternalId = Annotated[str | None, Field(max_length=200), AfterValidator(_clean_key)]
 
 
 class CaseFields(BaseModel):
@@ -215,6 +216,7 @@ class CaseFields(BaseModel):
     tags: Tags = []
     automation_status: AutomationStatus = AutomationStatus.manual
     automation_key: AutomationKey = None
+    external_id: ExternalId = None
 
 
 class CaseIn(CaseFields):
@@ -232,6 +234,7 @@ class CasePatch(BaseModel):
     tags: Tags | None = None
     automation_status: AutomationStatus | None = None
     automation_key: AutomationKey = None
+    external_id: ExternalId = None
 
 
 class CaseOut(ORM):
@@ -249,6 +252,7 @@ class CaseOut(ORM):
     tags: list[str]
     automation_status: AutomationStatus
     automation_key: str | None
+    external_id: str | None
     position: int
     created_at: datetime
     updated_at: datetime
@@ -286,7 +290,10 @@ class ImportResult(BaseModel):
     created: int = 0
     updated: int = 0
     sections_created: int = 0
-    errors: list[str] = []
+    errors: list[str] = []  # rows that were skipped
+    warnings: list[str] = []  # rows imported with a value we couldn't map
+    ignored_columns: list[str] = []  # columns in the file with no TestHarbor field
+    section_id: int | None = None  # section the import went into (if one was chosen)
 
 
 # --- Runs ----------------------------------------------------------------------------
