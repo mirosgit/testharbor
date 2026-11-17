@@ -73,7 +73,8 @@ export function CreateRunDialog({
   const hasView =
     context.visibleCount !== undefined &&
     (context.sectionId != null ||
-      !!(f && (f.q || f.tags.length || f.priority.length || f.type.length || f.automation_status.length)));
+      !!(f && (f.q || f.tags.length || f.priority.length || f.type.length || f.automation_status.length ||
+        Object.keys(f.fields).length)));
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -127,6 +128,7 @@ export function CreateRunDialog({
             priority: f?.priority,
             type: f?.type,
             automation_status: f?.automation_status,
+            fields: f?.fields,
           },
         };
       case "sections":

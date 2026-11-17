@@ -15,7 +15,8 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
 - **Test cases in a tree.** Suites contain nested sections, and cases are listed on the right,
   similar to TestRail. You can drag and drop cases, including several at once, between sections.
 - **Case editor.** It has a steps table (action and expected result), preconditions, priority,
-  type, tags and automation status. Text fields support Markdown.
+  type, tags and automation status. Text fields support Markdown. Any number of **custom fields**
+  (Owner, Sprint, State…) can be added, and you can filter by them.
 - **Search and filters.** Search by title or `C123`, and filter by tags, priority, type and
   automation status.
 - **Manual test runs.** Create a run from a whole suite, from chosen sections, from the current
@@ -28,6 +29,8 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
   - Folders become sections. You choose the target section, or a new one.
   - Their IDs (`TC-770`) are kept, so re-importing updates cases instead of duplicating them.
   - Columns or values that can't be mapped are listed after the import, not silently dropped.
+  - Before importing, a preview shows what will be created or updated. Extra columns, such as
+    Owner, State or Sprint, can be kept as custom fields.
 - **Automation**
   - REST API with OpenAPI docs at `/docs`, plus API tokens.
   - `POST /api/projects/{id}/runs/import-junit` accepts JUnit XML from pytest, Playwright, Jest,

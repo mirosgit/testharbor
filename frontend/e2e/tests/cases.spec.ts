@@ -30,11 +30,15 @@ test("log in, create a project, suite, section and case", async ({ page }) => {
   await page.getByRole("button", { name: "Add step" }).click();
   await page.getByLabel("Step 1 action").fill("Choose the saved card and pay");
   await page.getByLabel("Step 1 expected result").fill("Order confirmation is shown");
+  await page.getByRole("button", { name: "Add field" }).click();
+  await page.getByLabel("Field 1 name").fill("Sprint No.");
+  await page.getByLabel("Field 1 value").fill("Sprint 7");
   await page.getByRole("button", { name: "Create case" }).click();
 
   const sheet = page.getByTestId("case-sheet");
   await expect(sheet.getByRole("heading", { name: "Pay with a saved card" })).toBeVisible();
   await expect(sheet.getByText("Order confirmation is shown")).toBeVisible();
+  await expect(sheet.getByTestId("custom-fields")).toContainText("Sprint No.Sprint 7");
   await page.keyboard.press("Escape");
   await expect(sheet).toBeHidden(); // focus is trapped in the sheet until it has closed
 

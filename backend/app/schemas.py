@@ -202,6 +202,29 @@ def _clean_key(v: str | None) -> str | None:
 
 
 Tags = Annotated[list[str], AfterValidator(_clean_tags)]
+
+
+class CustomField(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    value: str = Field(max_length=5000)
+
+
+def _clean_fields(fields: list[CustomField]) -> list[CustomField]:
+    """Trim, drop empty values, reject duplicate names (case-insensitive)."""
+    out: list[CustomField] = []
+    seen: set[str] = set()
+    for f in fields:
+        name, value = " ".join(f.name.split()), f.value.strip()
+        if not name or not value:
+            continue
+        if name.lower() in seen:
+            raise ValueError(f"duplicate field {name!r}")
+        seen.add(name.lower())
+        out.append(CustomField(name=name, value=value))
+    return out
+
+
+CustomFields = Annotated[list[CustomField], AfterValidator(_clean_fields)]
 AutomationKey = Annotated[str | None, Field(max_length=1000), AfterValidator(_clean_key)]
 ExternalId = Annotated[str | None, Field(max_length=200), AfterValidator(_clean_key)]
 
@@ -217,6 +240,7 @@ class CaseFields(BaseModel):
     automation_status: AutomationStatus = AutomationStatus.manual
     automation_key: AutomationKey = None
     external_id: ExternalId = None
+    custom_fields: CustomFields = []
 
 
 class CaseIn(CaseFields):
@@ -235,6 +259,7 @@ class CasePatch(BaseModel):
     automation_status: AutomationStatus | None = None
     automation_key: AutomationKey = None
     external_id: ExternalId = None
+    custom_fields: CustomFields | None = None
 
 
 class CaseOut(ORM):
@@ -253,6 +278,7 @@ class CaseOut(ORM):
     automation_status: AutomationStatus
     automation_key: str | None
     external_id: str | None
+    custom_fields: list[CustomField]
     position: int
     created_at: datetime
     updated_at: datetime
@@ -281,9 +307,21 @@ class CaseFilter(BaseModel):
     priority: list[Priority] = []
     type: list[CaseType] = []
     automation_status: list[AutomationStatus] = []
+    # Custom field name -> accepted values (any of them); several names must all match.
+    fields: dict[str, list[str]] = {}
+
+
+class FieldValues(BaseModel):
+    name: str
+    values: list[str]
 
 
 # --- Import / export -----------------------------------------------------------------
+
+
+class ExtraColumn(BaseModel):
+    name: str
+    selected: bool  # imported as a custom field
 
 
 class ImportResult(BaseModel):
@@ -292,7 +330,9 @@ class ImportResult(BaseModel):
     sections_created: int = 0
     errors: list[str] = []  # rows that were skipped
     warnings: list[str] = []  # rows imported with a value we couldn't map
-    ignored_columns: list[str] = []  # columns in the file with no TestHarbor field
+    ignored_columns: list[str] = []  # columns with data that were not imported
+    extra_columns: list[ExtraColumn] = []  # columns that can become custom fields
+    dry_run: bool = False
     section_id: int | None = None  # section the import went into (if one was chosen)
 
 
