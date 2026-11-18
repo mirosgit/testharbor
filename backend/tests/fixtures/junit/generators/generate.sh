@@ -20,7 +20,8 @@ echo "== Playwright"
 docker run --rm --hostname ci-runner -u "$UIDGID" -e HOME=/tmp --ipc=host \
   -v "$HERE/playwright:/src:ro" -v "$OUT:/out" mcr.microsoft.com/playwright:v1.65.1-noble sh -c '
   cp -r /src /tmp/work && cd /tmp/work && npm install --silent --no-audit --no-fund >/dev/null &&
-  npx playwright test || true; cp results/junit.xml /out/playwright.xml'
+  npx playwright test || true; cp results/junit.xml /out/playwright.xml
+  cp results/results.json /out/playwright.json'
 
 echo "== Maven Surefire (JUnit 5)"
 docker run --rm --hostname ci-runner -u "$UIDGID" -e HOME=/tmp -e MAVEN_CONFIG=/tmp/.m2 \

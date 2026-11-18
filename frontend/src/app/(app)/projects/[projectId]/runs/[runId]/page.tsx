@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Lock, LockOpen, MoreHorizontal, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, FileText, Lock, LockOpen, MoreHorizontal, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
@@ -12,7 +12,8 @@ import { ConfirmDialog, NameDialog } from "@/components/dialogs";
 import { Markdown } from "@/components/markdown";
 import { ExecuteSheet } from "@/components/runs/execute-sheet";
 import { passRate, percentDone, RunProgress, StatusCounts } from "@/components/runs/progress";
-import { CiMeta, RunSourceBadge, timeAgo } from "@/components/runs/run-meta";
+import { ReportUrlDialog } from "@/components/runs/report-url-dialog";
+import { CiMeta, ReportLink, RunSourceBadge, timeAgo } from "@/components/runs/run-meta";
 import { SortMenu, type SortOption, type SortState } from "@/components/sort-menu";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -76,7 +77,7 @@ function RunView() {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortState<RunCaseSort>>({ sort: "manual", order: "asc" });
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [dialog, setDialog] = useState<"edit" | "delete" | null>(null);
+  const [dialog, setDialog] = useState<"edit" | "delete" | "report" | null>(null);
 
   const openCaseId = search.get("case") ? Number(search.get("case")) : null;
   const setOpenCase = (id: number | null) => {
@@ -194,9 +195,16 @@ function RunView() {
                     Created {timeAgo(run.created_at)}
                     {run.created_by_name && ` by ${run.created_by_name}`}
                   </span>
-                  <CiMeta run={run} />
+                  <CiMeta run={run} report={false} />
                 </div>
               </div>
+              {run.report_url && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={run.report_url} target="_blank" rel="noreferrer noopener">
+                    <FileText /> Report
+                  </a>
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={() => toggleClosed.mutate()}>
                 {run.closed ? (
                   <>
@@ -216,6 +224,7 @@ function RunView() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onSelect={() => setDialog("edit")}>Edit</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setDialog("report")}>Report link…</DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem variant="destructive" onSelect={() => setDialog("delete")}>
                     <Trash2 /> Delete run
@@ -368,6 +377,11 @@ function RunView() {
                         <PriorityBadge priority={c.priority} className="w-16 shrink-0 justify-center" />
                         <AutomationIcon status={c.automation_status} />
                       </button>
+                      <span className="flex w-5 shrink-0 justify-center">
+                        {c.last_result?.report_link && (
+                          <ReportLink href={c.last_result.report_link} label={`Open ${c.key} in the report`} />
+                        )}
+                      </span>
                       {readOnly ? (
                         <StatusBadge status={c.status} className="w-24 justify-center" />
                       ) : (
@@ -403,6 +417,15 @@ function RunView() {
             initialDescription={run.description}
             onSubmit={async (v) => {
               await api.updateRun(runId, v);
+              invalidate();
+            }}
+          />
+          <ReportUrlDialog
+            open={dialog === "report"}
+            onOpenChange={(o) => !o && setDialog(null)}
+            initial={run.report_url ?? ""}
+            onSubmit={async (url) => {
+              await api.updateRun(runId, { report_url: url || null });
               invalidate();
             }}
           />

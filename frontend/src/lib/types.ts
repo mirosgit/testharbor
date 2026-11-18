@@ -226,6 +226,8 @@ export interface TestRun {
   branch: string | null;
   commit: string | null;
   build_url: string | null;
+  /** HTML report of the run (e.g. Playwright's index.html). */
+  report_url: string | null;
   closed: boolean;
   closed_at: string | null;
   created_at: string;
@@ -250,6 +252,8 @@ export interface TestResult {
   stack_trace: string | null;
   recorded_by: string | null;
   created_at: string;
+  /** This result's details in the run's HTML report. */
+  report_link: string | null;
 }
 
 export interface RunCase {

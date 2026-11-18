@@ -311,3 +311,88 @@ async def test_token_lifecycle_and_bearer_import(client: AsyncClient, project) -
         assert (await client.delete(f"/api/tokens/{listed[0]['id']}")).status_code == 204
         assert (await bot.get("/api/projects", headers=headers)).status_code == 401
         assert (await client.get("/api/tokens")).json()[0]["revoked_at"] is not None
+
+
+# --- Playwright JSON report and links into the HTML report --------------------------
+
+from app.playwright_report import parse_playwright_json  # noqa: E402
+
+PW_IDS = {
+    "Login › C1 login with valid credentials": "41d3fd2474a19feb00a1-02624bf59c860447c5e4",
+    "Login › shows an error for a wrong password": "41d3fd2474a19feb00a1-6491ed65d7f104c47fce",
+}
+
+
+def test_parse_playwright_json_matches_junit_names() -> None:
+    from_json = {t.name: t for t in parse_playwright_json(load("playwright.json"))}
+    from_xml = {t.name: t for t in parse_junit(load("playwright.xml"))}
+    assert set(from_json) == set(from_xml)  # same names -> same automation keys
+    for name, t in from_json.items():
+        assert t.status == from_xml[name].status and t.case_ids() == from_xml[name].case_ids(), name
+        assert t.classname == from_xml[name].classname
+    wrong = from_json["Login › shows an error for a wrong password"]
+    assert wrong.message.startswith("Error: expect(locator).toBeVisible() failed")  # ANSI colours stripped
+    assert "\x1b" not in (wrong.details or "") and "login.spec.ts:18" in (wrong.details or "")
+    assert wrong.report_link() == f"#?testId={PW_IDS[wrong.name]}"
+
+
+def test_playwright_json_tags_flaky_and_errors() -> None:
+    import json
+
+    report = {"config": {"projects": [{"name": "chromium"}]}, "suites": [{"title": "a.spec.ts", "specs": [
+        {"title": "checkout", "id": "f-1", "file": "a.spec.ts", "tags": ["@C3", "@smoke"], "tests": [
+            {"status": "flaky", "projectName": "chromium", "annotations": [],
+             "results": [{"status": "failed", "retry": 0, "errors": [{"message": "boom"}]},
+                         {"status": "passed", "retry": 1, "duration": 1500}]}]},
+    ]}]}
+    (t,) = parse_playwright_json(json.dumps(report).encode())
+    assert (t.name, t.case_ids(), t.status, t.duration_ms()) == ("checkout", [3], ResultStatus.passed, 1500)
+    assert t.message == "Flaky: passed on retry 1"
+    with pytest.raises(JUnitParseError):
+        parse_playwright_json(b'{"not": "a report"}')
+    with pytest.raises(JUnitParseError):
+        parse_playwright_json(b"{broken")
+
+
+def test_report_link_properties() -> None:
+    t = JUnitCase(name="x", properties={"report_url": ["https://ci/report/index.html#?testId=1"]})
+    assert t.report_link() == "https://ci/report/index.html#?testId=1"
+    assert JUnitCase(name="x", properties={"url": ["javascript:alert(1)"]}).report_link() is None
+    assert JUnitCase(name="x", properties={"pw_test_id": ["ab-12"]}).report_link() == "#?testId=ab-12"
+    assert JUnitCase(name="x", properties={"pw_test_id": ["a b\"><"]}).report_link() is None
+
+
+async def test_import_playwright_json_with_report_links(client: AsyncClient, project) -> None:  # type: ignore[no-untyped-def]
+    report = "http://127.0.0.1:8766/lbrjgd/index.html"
+    r = await client.post(f"/api/projects/{project['id']}/runs/import-junit",
+                          files=[("file", ("results.json", load("playwright.json"), "application/json"))],
+                          params={"report_url": report})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert await _statuses(client, body["run_id"]) == {"C1": "passed", "C2": "failed", "C6": "skipped"}
+    run = (await client.get(f"/api/runs/{body['run_id']}")).json()
+    assert run["report_url"] == report
+
+    links = {c["key"]: c["last_result"]["report_link"] for c in (await client.get(f"/api/runs/{body['run_id']}/cases")).json()}
+    assert links["C1"] == f"{report}#?testId={PW_IDS['Login › C1 login with valid credentials']}"
+    hist = (await client.get(f"/api/runs/{body['run_id']}/cases/C2/results")).json()
+    assert hist[0]["report_link"] == f"{report}#?testId={PW_IDS['Login › shows an error for a wrong password']}"
+    history = (await client.get("/api/cases/C2/history")).json()
+    assert history[0]["last_result"]["report_link"].startswith(report + "#?testId=")
+
+    # The report can move later (e.g. CI artifacts): links follow the run's report URL.
+    moved = "https://reports.example.com/build-7/index.html"
+    r = await client.patch(f"/api/runs/{body['run_id']}", json={"report_url": moved})
+    assert r.status_code == 200 and r.json()["report_url"] == moved
+    c1 = (await client.get(f"/api/runs/{body['run_id']}/cases")).json()[0]
+    assert c1["last_result"]["report_link"].startswith(moved + "#?testId=")
+    assert (await client.patch(f"/api/runs/{body['run_id']}", json={"report_url": "javascript:x"})).status_code == 422
+    r = await client.patch(f"/api/runs/{body['run_id']}", json={"report_url": ""})
+    assert r.json()["report_url"] is None
+    c1 = (await client.get(f"/api/runs/{body['run_id']}/cases")).json()[0]
+    assert c1["last_result"]["report_link"] is None  # nothing to open without a report
+
+    bad = await client.post(f"/api/projects/{project['id']}/runs/import-junit",
+                            files=[("file", ("results.json", load("playwright.json"), "application/json"))],
+                            params={"report_url": "file:///etc/passwd"})
+    assert bad.status_code == 422

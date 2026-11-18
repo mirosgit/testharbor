@@ -287,3 +287,9 @@ An admin cannot demote or deactivate themselves. The system always keeps at leas
 - **Case form (BrowserStack layout).** One column: Title*, Description, Preconditions, Steps (Step / Expected Result), Expected Result. Then a "Details" grid (Section, Owner, State, Priority, Type of Test Case, Automation Status, Tags) and "Custom Fields" (Automation Complexity, Automation Progress, Applicable Roles, Sprint No., Automation Key, other fields).
 - **Description (migration 0007).** It is its own field; imports no longer merge it into Preconditions. Existing cases are fixed by re-importing the file.
 
+## Phase 13: links into test reports
+
+- **Playwright JSON (`app/playwright_report.py`).** The import endpoint also accepts Playwright's JSON reporter output (sniffed by content). It is turned into the same records as JUnit, with Playwright-JUnit-style names (`Describe › title`, classname = spec file), so matching and automation keys are identical. Case IDs come from a `case_id` annotation, `@C123` tags or the title. ANSI colours are stripped. Flaky tests count as passed, with a note.
+- **Links (migration 0008).** `test_runs.report_url` is the run's HTML report: an import param (`--report-url`), editable on the run page. `test_results.report_link` is either an absolute http(s) URL (a `report_url`/`link` property in JUnit) or `#?testId=<id>` (the Playwright test id, which equals the HTML report's `testId`; verified on a real 1.65 report). It is resolved against the run's current report URL when served, so moving the report only needs the run's URL updated. Only http(s) URLs are accepted.
+- **UI.** The run header has a "Report" button. Each run row has an icon linking to the test's page. Results show "Open in report", and case history links too.
+

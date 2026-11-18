@@ -1,0 +1,333 @@
+{
+  "config": {
+    "argv": [
+      "/usr/bin/node",
+      "/tmp/work/node_modules/.bin/playwright",
+      "test"
+    ],
+    "configFile": "/tmp/work/playwright.config.ts",
+    "rootDir": "/tmp/work/tests",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/tmp/work/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/tmp/work/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/tmp/work/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "name": "",
+        "testDir": "/tmp/work/tests",
+        "snapshotDir": "/tmp/work/tests",
+        "testIgnore": [],
+        "testMatch": "**/*.@(spec|test).?(c|m)[jt]s?(x)",
+        "timeout": 30000,
+        "use": {
+          "browserName": "chromium"
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": ""
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "junit",
+        {
+          "outputFile": "results/junit.xml",
+          "embedAnnotationsAsProperties": true
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "results/results.json"
+        }
+      ],
+      [
+        "html",
+        {
+          "outputFolder": "results/html",
+          "open": "never"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.65.1",
+    "workers": 6,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "login.spec.ts",
+      "file": "login.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "signup form renders",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 154,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-18T16:38:10.306Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "41d3fd2474a19feb00a1-0bfe96fc2df1c473e4d0",
+          "file": "login.spec.ts",
+          "line": 25,
+          "column": 1
+        }
+      ],
+      "suites": [
+        {
+          "title": "Login",
+          "file": "login.spec.ts",
+          "line": 7,
+          "column": 6,
+          "specs": [
+            {
+              "title": "C1 login with valid credentials",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 308,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-18T16:38:08.164Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "41d3fd2474a19feb00a1-02624bf59c860447c5e4",
+              "file": "login.spec.ts",
+              "line": 8,
+              "column": 3
+            },
+            {
+              "title": "shows an error for a wrong password",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "case_id",
+                      "description": "C2",
+                      "location": {
+                        "file": "/tmp/work/tests/login.spec.ts",
+                        "line": 13,
+                        "column": 3
+                      }
+                    }
+                  ],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 589,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#error')\nExpected: visible\nReceived: hidden\nTimeout:  500ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" locator('#error') with timeout 500ms\u001b[22m\n\u001b[2m  - waiting for locator('#error')\u001b[22m\n\u001b[2m    6 × locator resolved to <p hidden=\"\" id=\"error\">Invalid email or password</p>\u001b[22m\n\u001b[2m      - unexpected value \"hidden\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#error')\nExpected: visible\nReceived: hidden\nTimeout:  500ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" locator('#error') with timeout 500ms\u001b[22m\n\u001b[2m  - waiting for locator('#error')\u001b[22m\n\u001b[2m    6 × locator resolved to <p hidden=\"\" id=\"error\">Invalid email or password</p>\u001b[22m\n\u001b[2m      - unexpected value \"hidden\"\u001b[22m\n\n    at /tmp/work/tests/login.spec.ts:18:44",
+                        "location": {
+                          "file": "/tmp/work/tests/login.spec.ts",
+                          "column": 44,
+                          "line": 18
+                        },
+                        "snippet": "  16 |     async ({ page }) => {\n  17 |       await page.setContent(loginPage);\n> 18 |       await expect(page.locator(\"#error\")).toBeVisible({ timeout: 500 });\n     |                                            ^\n  19 |     },\n  20 |   );\n  21 |"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/tmp/work/tests/login.spec.ts",
+                            "column": 44,
+                            "line": 18
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#error')\nExpected: visible\nReceived: hidden\nTimeout:  500ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" locator('#error') with timeout 500ms\u001b[22m\n\u001b[2m  - waiting for locator('#error')\u001b[22m\n\u001b[2m    6 × locator resolved to <p hidden=\"\" id=\"error\">Invalid email or password</p>\u001b[22m\n\u001b[2m      - unexpected value \"hidden\"\u001b[22m\n\n\n  16 |     async ({ page }) => {\n  17 |       await page.setContent(loginPage);\n> 18 |       await expect(page.locator(\"#error\")).toBeVisible({ timeout: 500 });\n     |                                            ^\n  19 |     },\n  20 |   );\n  21 |\n    at /tmp/work/tests/login.spec.ts:18:44"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-18T16:38:09.036Z",
+                      "annotations": [
+                        {
+                          "type": "case_id",
+                          "description": "C2",
+                          "location": {
+                            "file": "/tmp/work/tests/login.spec.ts",
+                            "line": 13,
+                            "column": 3
+                          }
+                        }
+                      ],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/tmp/work/test-results/login-Login-shows-an-error-for-a-wrong-password/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/tmp/work/tests/login.spec.ts",
+                        "column": 44,
+                        "line": 18
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "41d3fd2474a19feb00a1-6491ed65d7f104c47fce",
+              "file": "login.spec.ts",
+              "line": 13,
+              "column": 3
+            },
+            {
+              "title": "remember me [C6]",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "location": {
+                        "file": "/tmp/work/tests/login.spec.ts",
+                        "line": 22,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-18T16:38:10.304Z",
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "location": {
+                            "file": "/tmp/work/tests/login.spec.ts",
+                            "line": 22,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "41d3fd2474a19feb00a1-bb637218581f1e76b2bd",
+              "file": "login.spec.ts",
+              "line": 22,
+              "column": 8
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-18T16:38:07.656Z",
+    "duration": 2974.188,
+    "expected": 2,
+    "skipped": 1,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}

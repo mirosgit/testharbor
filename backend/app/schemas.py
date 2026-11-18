@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 from typing import Annotated
@@ -24,6 +25,36 @@ from app.models import (
 
 class ORM(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+
+def check_report_url(v: str | None) -> str | None:
+    """Only http(s) links are stored (they are rendered as hrefs)."""
+    if v is None or not v.strip():
+        return None
+    v = v.strip()
+    if not re.match(r"^https?://[^\s]+$", v, re.I):
+        raise ValueError("report URL must start with http:// or https://")
+    return v
+
+
+def check_report_link(v: str | None) -> str | None:
+    """An absolute http(s) URL, or a fragment ("#?testId=…") relative to the run's report."""
+    if v is None or not v.strip():
+        return None
+    v = v.strip()
+    return v if v.startswith("#") and " " not in v else check_report_url(v)
+
+
+def resolve_report_link(report_url: str | None, link: str | None) -> str | None:
+    if not link:
+        return None
+    if link.startswith("#"):
+        return report_url.split("#", 1)[0] + link if report_url else None
+    return link
+
+
+ReportUrl = Annotated[str | None, Field(max_length=2000), AfterValidator(check_report_url)]
+ReportLink = Annotated[str | None, Field(max_length=2000), AfterValidator(check_report_link)]
 
 
 # --- Auth ----------------------------------------------------------------------------
@@ -456,6 +487,7 @@ class RunIn(RunSelection):
 class RunPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=300)
     description: str | None = None
+    report_url: ReportUrl = None  # "" or null clears it
     closed: bool | None = None
 
 
@@ -478,6 +510,7 @@ class RunOut(ORM):
     branch: str | None
     commit: str | None
     build_url: str | None
+    report_url: str | None = None
     closed: bool
     closed_at: datetime | None
     created_at: datetime
@@ -498,6 +531,7 @@ class ResultIn(BaseModel):
     duration_ms: int | None = Field(default=None, ge=0)
     error_message: str | None = None
     stack_trace: str | None = None
+    report_link: ReportLink = None
 
 
 class BulkResultsIn(BaseModel):
@@ -514,6 +548,8 @@ class ResultOut(ORM):
     error_message: str | None
     stack_trace: str | None
     recorded_by: str | None = None
+    # Resolved against the run's report URL; null when there is nothing to open.
+    report_link: str | None = None
     created_at: datetime
 
 
