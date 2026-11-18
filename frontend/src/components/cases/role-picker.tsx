@@ -13,7 +13,8 @@ export function RolePicker({
   onChange,
   options,
   projectId,
-  placeholder = "No roles",
+  placeholder = "No applicable roles",
+  "aria-label": ariaLabel = "Applicable Roles",
 }: {
   id?: string;
   value: string[];
@@ -21,11 +22,12 @@ export function RolePicker({
   options: string[];
   projectId: number;
   placeholder?: string;
+  "aria-label"?: string;
 }) {
   return (
     <MultiCombobox
       id={id}
-      aria-label="Roles"
+      aria-label={ariaLabel}
       value={value}
       onChange={onChange}
       options={options}
@@ -37,7 +39,7 @@ export function RolePicker({
           href={`/projects/${projectId}/settings`}
           className="flex items-center gap-1.5 rounded-sm px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
         >
-          <Settings2 className="size-3.5" /> Manage project roles
+          <Settings2 className="size-3.5" /> Manage applicable roles
         </Link>
       }
     />

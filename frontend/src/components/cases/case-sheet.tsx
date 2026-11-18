@@ -266,7 +266,7 @@ function CaseView({
             {c.automation_complexity ? complexityLabel[c.automation_complexity] : <Empty />}
           </Meta>
           <Meta label="Sprint">{c.sprint ?? <Empty />}</Meta>
-          <Meta label="Roles" className="col-span-2">
+          <Meta label="Applicable Roles" className="col-span-2">
             {c.roles.length ? (
               <div className="flex flex-wrap gap-1">
                 {c.roles.map((r) => (
