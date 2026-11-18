@@ -153,6 +153,20 @@ export interface CaseList {
   total: number;
 }
 
+export type CaseSort =
+  | "manual"
+  | "id"
+  | "title"
+  | "priority"
+  | "type"
+  | "state"
+  | "automation_status"
+  | "owner"
+  | "sprint"
+  | "created_at"
+  | "updated_at";
+export type RunSort = "created_at" | "name" | "closed_at";
+
 export interface CaseFilter {
   suite_id?: number;
   section_id?: number;

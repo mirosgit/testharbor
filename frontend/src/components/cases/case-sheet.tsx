@@ -15,6 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Combobox, MultiCombobox } from "@/components/combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -36,6 +37,7 @@ import {
   typeLabel,
 } from "@/lib/labels";
 import type { SectionNode } from "@/lib/tree";
+import { cn } from "@/lib/utils";
 import {
   AUTOMATION_COMPLEXITIES,
   AUTOMATION_PROGRESSES,
@@ -51,7 +53,6 @@ import {
 import { CustomFieldsEditor, CustomFieldsView } from "./custom-fields";
 import { RolePicker } from "./role-picker";
 import { StepsEditor } from "./steps-editor";
-import { TagInput } from "./tag-input";
 
 export type SheetState = { mode: "view"; caseId: number } | { mode: "create"; sectionId: number } | null;
 
@@ -134,7 +135,7 @@ export function CaseSheet({
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full gap-0 overflow-y-auto sm:max-w-3xl" data-testid="case-sheet">
+      <SheetContent className="w-full gap-0 overflow-y-auto sm:max-w-3xl lg:max-w-5xl" data-testid="case-sheet">
         {isCreate ? (
           <CaseForm
             key={`new-${state.sectionId}`}
@@ -453,20 +454,39 @@ function CaseForm({
         <SheetTitle>{title}</SheetTitle>
         <SheetDescription>Markdown is supported in text fields. Ctrl+Enter saves.</SheetDescription>
       </SheetHeader>
-      <div className="grid flex-1 gap-5 p-6">
-        <div className="grid gap-2">
-          <Label htmlFor="case-title">Title</Label>
-          <Input
-            id="case-title"
-            value={v.title}
-            onChange={(e) => set("title", e.target.value)}
-            autoFocus
-            placeholder="e.g. Login with valid credentials"
-          />
+      <div className="grid flex-1 content-start gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="grid content-start gap-5">
+          <div className="grid gap-2">
+            <Label htmlFor="case-title">Title</Label>
+            <Input
+              id="case-title"
+              value={v.title}
+              onChange={(e) => set("title", e.target.value)}
+              autoFocus
+              placeholder="e.g. Login with valid credentials"
+            />
+          </div>
+
+          <Field label="Preconditions" htmlFor="case-preconditions">
+            <MarkdownField id="case-preconditions" value={v.preconditions} onChange={(x) => set("preconditions", x)} />
+          </Field>
+
+          <Field label="Steps">
+            <StepsEditor steps={v.steps} onChange={(s) => set("steps", s)} />
+          </Field>
+
+          <Field label="Expected result" htmlFor="case-expected">
+            <MarkdownField id="case-expected" value={v.expected_result} onChange={(x) => set("expected_result", x)} />
+          </Field>
+
+          <Field label="Custom fields">
+            <CustomFieldsEditor value={v.custom_fields} onChange={(f) => set("custom_fields", f)} known={knownFields} />
+          </Field>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Section">
+        <aside className="grid content-start gap-3 lg:border-l lg:pl-6" aria-label="Case properties">
+          <SideHeading>Details</SideHeading>
+          <Prop label="Section">
             <Select value={String(v.section_id)} onValueChange={(x) => set("section_id", Number(x))}>
               <SelectTrigger className="w-full" aria-label="Section">
                 <SelectValue />
@@ -479,136 +499,41 @@ function CaseForm({
                 ))}
               </SelectContent>
             </Select>
-          </Field>
-          <Field label="Priority">
-            <Select value={v.priority} onValueChange={(x) => set("priority", x as CaseInput["priority"])}>
-              <SelectTrigger className="w-full" aria-label="Priority">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PRIORITIES.map((p) => (
-                  <SelectItem key={p} value={p}>
-                    {priorityLabel[p]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="Type">
-            <Select value={v.type} onValueChange={(x) => set("type", x as CaseInput["type"])}>
-              <SelectTrigger className="w-full" aria-label="Type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CASE_TYPES.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {typeLabel[t]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="Automation">
-            <Select
-              value={v.automation_status}
-              onValueChange={(x) => set("automation_status", x as CaseInput["automation_status"])}
-            >
-              <SelectTrigger className="w-full" aria-label="Automation status">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {AUTOMATION_STATUSES.map((a) => (
-                  <SelectItem key={a} value={a}>
-                    {automationLabel[a]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="State">
-            <Select value={v.state} onValueChange={(x) => set("state", x as CaseState)}>
-              <SelectTrigger className="w-full" aria-label="State">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CASE_STATES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {stateLabel[s]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="Owner" htmlFor="case-owner">
-            <Input
+          </Prop>
+          <Prop label="State">
+            <EnumSelect label="State" value={v.state} onChange={(x) => x && set("state", x)} options={CASE_STATES} labels={stateLabel} />
+          </Prop>
+          <Prop label="Priority">
+            <EnumSelect label="Priority" value={v.priority} onChange={(x) => x && set("priority", x)} options={PRIORITIES} labels={priorityLabel} />
+          </Prop>
+          <Prop label="Type">
+            <EnumSelect label="Type" value={v.type} onChange={(x) => x && set("type", x)} options={CASE_TYPES} labels={typeLabel} />
+          </Prop>
+          <Prop label="Owner" htmlFor="case-owner">
+            <Combobox
               id="case-owner"
-              value={v.owner ?? ""}
-              onChange={(e) => set("owner", e.target.value || null)}
-              list="case-owner-options"
-              placeholder="Who maintains the case"
-              maxLength={200}
+              aria-label="Owner"
+              value={v.owner}
+              onChange={(x) => set("owner", x)}
+              options={known?.owners ?? []}
+              placeholder="No owner"
+              searchPlaceholder="Find a person"
+              creatable
             />
-            <datalist id="case-owner-options">
-              {known?.owners.map((o) => <option key={o} value={o} />)}
-            </datalist>
-          </Field>
-          <Field label="Sprint" htmlFor="case-sprint">
-            <Input
+          </Prop>
+          <Prop label="Sprint" htmlFor="case-sprint">
+            <Combobox
               id="case-sprint"
-              value={v.sprint ?? ""}
-              onChange={(e) => set("sprint", e.target.value || null)}
-              list="case-sprint-options"
-              placeholder="e.g. Sprint 125"
-              maxLength={100}
+              aria-label="Sprint"
+              value={v.sprint}
+              onChange={(x) => set("sprint", x)}
+              options={known?.sprints ?? []}
+              placeholder="No sprint"
+              searchPlaceholder="Find a sprint"
+              creatable
             />
-            <datalist id="case-sprint-options">
-              {known?.sprints.map((o) => <option key={o} value={o} />)}
-            </datalist>
-          </Field>
-          <Field label="Automation progress">
-            <Select
-              value={v.automation_progress ?? NONE}
-              onValueChange={(x) =>
-                set("automation_progress", x === NONE ? null : (x as CaseInput["automation_progress"]))
-              }
-            >
-              <SelectTrigger className="w-full" aria-label="Automation progress">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>Not set</SelectItem>
-                {AUTOMATION_PROGRESSES.map((a) => (
-                  <SelectItem key={a} value={a}>
-                    {progressLabel[a]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="Automation complexity">
-            <Select
-              value={v.automation_complexity ?? NONE}
-              onValueChange={(x) =>
-                set("automation_complexity", x === NONE ? null : (x as CaseInput["automation_complexity"]))
-              }
-            >
-              <SelectTrigger className="w-full" aria-label="Automation complexity">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>Not set</SelectItem>
-                {AUTOMATION_COMPLEXITIES.map((a) => (
-                  <SelectItem key={a} value={a}>
-                    {complexityLabel[a]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="Roles" htmlFor="case-roles">
+          </Prop>
+          <Prop label="Roles" htmlFor="case-roles">
             <RolePicker
               id="case-roles"
               value={v.roles}
@@ -616,44 +541,62 @@ function CaseForm({
               options={known?.roles ?? []}
               projectId={projectId}
             />
-          </Field>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Tags" htmlFor="case-tags">
-            <TagInput
+          </Prop>
+          <Prop label="Tags" htmlFor="case-tags">
+            <MultiCombobox
               id="case-tags"
+              aria-label="Tags"
               value={v.tags}
               onChange={(t) => set("tags", t)}
-              suggestions={tagSuggestions}
+              options={tagSuggestions}
+              placeholder="No tags"
+              searchPlaceholder="Find a tag"
+              normalize={(t) => t.trim().toLowerCase()}
+              noun="tag"
             />
-          </Field>
-          <Field label="Automation key" htmlFor="case-automation-key">
+          </Prop>
+
+          <SideHeading className="pt-3">Automation</SideHeading>
+          <Prop label="Status">
+            <EnumSelect
+              label="Automation status"
+              value={v.automation_status}
+              onChange={(x) => x && set("automation_status", x)}
+              options={AUTOMATION_STATUSES}
+              labels={automationLabel}
+            />
+          </Prop>
+          <Prop label="Progress">
+            <EnumSelect
+              label="Automation progress"
+              value={v.automation_progress}
+              onChange={(x) => set("automation_progress", x)}
+              options={AUTOMATION_PROGRESSES}
+              labels={progressLabel}
+              nullable
+            />
+          </Prop>
+          <Prop label="Complexity">
+            <EnumSelect
+              label="Automation complexity"
+              value={v.automation_complexity}
+              onChange={(x) => set("automation_complexity", x)}
+              options={AUTOMATION_COMPLEXITIES}
+              labels={complexityLabel}
+              nullable
+            />
+          </Prop>
+          <Prop label="Key" htmlFor="case-automation-key">
             <Input
               id="case-automation-key"
               value={v.automation_key ?? ""}
               onChange={(e) => set("automation_key", e.target.value || null)}
               placeholder="tests/test_auth.py::test_login"
               className="font-mono text-xs"
+              title="Links JUnit results to this case"
             />
-          </Field>
-        </div>
-
-        <Field label="Preconditions" htmlFor="case-preconditions">
-          <MarkdownField id="case-preconditions" value={v.preconditions} onChange={(x) => set("preconditions", x)} />
-        </Field>
-
-        <Field label="Steps">
-          <StepsEditor steps={v.steps} onChange={(s) => set("steps", s)} />
-        </Field>
-
-        <Field label="Expected result" htmlFor="case-expected">
-          <MarkdownField id="case-expected" value={v.expected_result} onChange={(x) => set("expected_result", x)} />
-        </Field>
-
-        <Field label="Fields">
-          <CustomFieldsEditor value={v.custom_fields} onChange={(f) => set("custom_fields", f)} known={knownFields} />
-        </Field>
+          </Prop>
+        </aside>
       </div>
 
       <div className="sticky bottom-0 flex items-center gap-2 border-t bg-background px-6 py-3">
@@ -677,5 +620,55 @@ function Field({ label, htmlFor, children }: { label: string; htmlFor?: string; 
       <Label htmlFor={htmlFor}>{label}</Label>
       {children}
     </div>
+  );
+}
+
+function SideHeading({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <h3 className={cn("text-xs font-semibold tracking-wide text-muted-foreground uppercase", className)}>{children}</h3>
+  );
+}
+
+/** Label on the left, control on the right (stacked on narrow screens). */
+function Prop({ label, htmlFor, children }: { label: string; htmlFor?: string; children: React.ReactNode }) {
+  return (
+    <div className="grid items-center gap-1.5 sm:grid-cols-[6rem_minmax(0,1fr)] lg:grid-cols-1 xl:grid-cols-[5.5rem_minmax(0,1fr)]">
+      <Label htmlFor={htmlFor} className="text-muted-foreground">
+        {label}
+      </Label>
+      {children}
+    </div>
+  );
+}
+
+function EnumSelect<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+  labels,
+  nullable = false,
+}: {
+  label: string;
+  value: T | null;
+  onChange: (v: T | null) => void;
+  options: readonly T[];
+  labels: Record<T, string>;
+  nullable?: boolean;
+}) {
+  return (
+    <Select value={value ?? NONE} onValueChange={(x) => onChange(x === NONE ? null : (x as T))}>
+      <SelectTrigger className="w-full" aria-label={label}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {nullable && <SelectItem value={NONE}>Not set</SelectItem>}
+        {options.map((o) => (
+          <SelectItem key={o} value={o}>
+            {labels[o]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

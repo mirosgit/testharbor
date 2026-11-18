@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { Combobox, MultiCombobox } from "@/components/combobox";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,7 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, ApiError } from "@/lib/api";
@@ -36,7 +36,8 @@ import {
 } from "@/lib/types";
 
 import { RolePicker } from "./role-picker";
-import { TagInput } from "./tag-input";
+
+const lowerTag = (t: string) => t.trim().toLowerCase();
 
 const KEEP = "__keep__";
 const CLEAR = "__clear__";
@@ -171,20 +172,14 @@ export function BulkEditDialog({
           </SelectContent>
         </Select>
         {text[field].mode === SET && (
-          <>
-            <Input
-              value={text[field].value}
-              onChange={(e) => setText((t) => ({ ...t, [field]: { ...t[field], value: e.target.value } }))}
-              list={`bulk-${field}-options`}
-              aria-label={label}
-              autoFocus
-            />
-            <datalist id={`bulk-${field}-options`}>
-              {suggestions.map((s) => (
-                <option key={s} value={s} />
-              ))}
-            </datalist>
-          </>
+          <Combobox
+            aria-label={label}
+            value={text[field].value || null}
+            onChange={(v) => setText((t) => ({ ...t, [field]: { ...t[field], value: v ?? "" } }))}
+            options={suggestions}
+            placeholder={`Choose ${label.toLowerCase()}`}
+            creatable
+          />
         )}
       </div>
     </Row>
@@ -213,10 +208,11 @@ export function BulkEditDialog({
             {freeText("owner", "Owner", known?.owners ?? [])}
             {freeText("sprint", "Sprint", known?.sprints ?? [])}
             <Row label="Add roles" htmlFor="bulk-add-roles">
-              <RolePicker id="bulk-add-roles" value={addRoles} onChange={setAddRoles} options={known?.roles ?? []} projectId={projectId} />
+              <RolePicker placeholder="Roles to add" id="bulk-add-roles" value={addRoles} onChange={setAddRoles} options={known?.roles ?? []} projectId={projectId} />
             </Row>
             <Row label="Remove roles" htmlFor="bulk-remove-roles">
               <RolePicker
+                placeholder="Roles to remove"
                 id="bulk-remove-roles"
                 value={removeRoles}
                 onChange={setRemoveRoles}
@@ -225,10 +221,28 @@ export function BulkEditDialog({
               />
             </Row>
             <Row label="Add tags" htmlFor="bulk-add-tags">
-              <TagInput id="bulk-add-tags" value={addTags} onChange={setAddTags} suggestions={tags} />
+              <MultiCombobox
+                id="bulk-add-tags"
+                aria-label="Add tags"
+                value={addTags}
+                onChange={setAddTags}
+                options={tags}
+                placeholder="Tags to add"
+                normalize={lowerTag}
+                noun="tag"
+              />
             </Row>
             <Row label="Remove tags" htmlFor="bulk-remove-tags">
-              <TagInput id="bulk-remove-tags" value={removeTags} onChange={setRemoveTags} suggestions={tags} placeholder="Tags to remove…" />
+              <MultiCombobox
+                id="bulk-remove-tags"
+                aria-label="Remove tags"
+                value={removeTags}
+                onChange={setRemoveTags}
+                options={tags}
+                placeholder="Tags to remove"
+                creatable={false}
+                noun="tag"
+              />
             </Row>
           </div>
           <DialogFooter>
