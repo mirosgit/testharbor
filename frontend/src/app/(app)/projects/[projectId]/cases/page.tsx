@@ -549,7 +549,6 @@ function CasesWorkspace() {
             suiteId={suiteId}
             sections={flat}
             paths={paths}
-            defaultSectionId={sectionId}
             onImported={(r) => {
               refresh();
               if (r.section_id) setParams({ section: r.section_id, case: null });
