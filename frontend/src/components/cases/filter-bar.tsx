@@ -236,7 +236,7 @@ const builtinLabel: Record<BuiltinKey, string> = {
   state: "State",
   owner: "Owner",
   sprint: "Sprint",
-  roles: "Roles",
+  roles: "Applicable Roles",
   automation_progress: "Automation progress",
   automation_complexity: "Automation complexity",
 };
