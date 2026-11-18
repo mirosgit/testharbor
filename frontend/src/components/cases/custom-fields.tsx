@@ -1,8 +1,7 @@
 "use client";
 
 import { Plus, X } from "lucide-react";
-import { useId } from "react";
-
+import { Combobox } from "@/components/combobox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { CustomField, FieldValues } from "@/lib/types";
@@ -38,37 +37,49 @@ export function CustomFieldsEditor({
 }: {
   value: CustomField[];
   onChange: (fields: CustomField[]) => void;
-  /** Field names/values used elsewhere in the project, for autocomplete. */
+  /** Field names/values used elsewhere in the project, for pickers. */
   known?: FieldValues[];
 }) {
-  const id = useId();
   const set = (i: number, patch: Partial<CustomField>) =>
     onChange(value.map((f, j) => (j === i ? { ...f, ...patch } : f)));
+  const unusedNames = (i: number) =>
+    known
+      .map((k) => k.name)
+      .filter((n) => !value.some((f, j) => j !== i && f.name.trim().toLowerCase() === n.toLowerCase()));
   return (
     <div className="grid gap-2" data-testid="custom-fields-editor">
       {value.map((f, i) => {
         const values = known.find((k) => k.name.toLowerCase() === f.name.trim().toLowerCase())?.values ?? [];
         return (
           <div key={i} className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] gap-2">
-            <Input
-              value={f.name}
-              onChange={(e) => set(i, { name: e.target.value })}
-              placeholder="Field, e.g. Sprint"
-              list={`${id}-names`}
+            <Combobox
               aria-label={`Field ${i + 1} name`}
+              value={f.name || null}
+              onChange={(name) => set(i, { name: name ?? "" })}
+              options={unusedNames(i)}
+              placeholder="Field name"
+              searchPlaceholder="Find a field"
+              creatable
+              clearable={false}
             />
-            <Input
-              value={f.value}
-              onChange={(e) => set(i, { value: e.target.value })}
-              placeholder="Value"
-              list={`${id}-values-${i}`}
-              aria-label={`Field ${i + 1} value`}
-            />
-            <datalist id={`${id}-values-${i}`}>
-              {values.map((v) => (
-                <option key={v} value={v} />
-              ))}
-            </datalist>
+            {values.length > 0 ? (
+              <Combobox
+                aria-label={`Field ${i + 1} value`}
+                value={f.value || null}
+                onChange={(v) => set(i, { value: v ?? "" })}
+                options={values}
+                placeholder="Value"
+                searchPlaceholder="Find a value"
+                creatable
+              />
+            ) : (
+              <Input
+                value={f.value}
+                onChange={(e) => set(i, { value: e.target.value })}
+                placeholder="Value"
+                aria-label={`Field ${i + 1} value`}
+              />
+            )}
             <Button
               type="button"
               variant="ghost"
@@ -81,13 +92,6 @@ export function CustomFieldsEditor({
           </div>
         );
       })}
-      <datalist id={`${id}-names`}>
-        {known
-          .filter((k) => !value.some((f) => f.name.trim().toLowerCase() === k.name.toLowerCase()))
-          .map((k) => (
-            <option key={k.name} value={k.name} />
-          ))}
-      </datalist>
       <Button
         type="button"
         variant="outline"

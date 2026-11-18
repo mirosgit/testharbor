@@ -3,7 +3,7 @@
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { GripVertical, Plus } from "lucide-react";
 
-import { AutomationIcon, PriorityBadge, Tag } from "@/components/badges";
+import { AutomationIcon, PriorityBadge, StateBadge, Tag } from "@/components/badges";
 import { Checkbox } from "@/components/ui/checkbox";
 import { typeLabel } from "@/lib/labels";
 import type { SectionNode } from "@/lib/tree";
@@ -176,6 +176,9 @@ function CaseRow({
           {c.tags.slice(0, 3).map((t) => (
             <Tag key={t}>{t}</Tag>
           ))}
+        </span>
+        <span className="hidden w-28 shrink-0 md:block">
+          <StateBadge state={c.state} />
         </span>
         <span className="hidden w-24 shrink-0 text-xs text-muted-foreground md:block">{typeLabel[c.type]}</span>
         <PriorityBadge priority={c.priority} className="w-16 shrink-0 justify-center" />

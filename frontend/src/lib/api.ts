@@ -1,5 +1,9 @@
 import type {
+  CaseBulkUpdate,
+  CaseSort,
+  CaseValues,
   FieldValues,
+  RunSort,
   ImportTarget,
   AdminUser,
   Invite,
@@ -81,10 +85,20 @@ export function filterParams(f: object): URLSearchParams {
       continue;
     }
     if (v === undefined || v === null || v === "") continue;
+    if (k === "roles" && Array.isArray(v)) {
+      v.forEach((x) => p.append("role", String(x))); // the query param is singular
+      continue;
+    }
     if (Array.isArray(v)) v.forEach((x) => p.append(k, String(x)));
     else p.set(k, String(v));
   }
   return p;
+}
+
+export interface Paging {
+  limit: number;
+  offset?: number;
+  order?: "asc" | "desc";
 }
 
 export const api = {
@@ -114,8 +128,10 @@ export const api = {
   project: (id: number) => request<Project>(`/api/projects/${id}`),
   createProject: (body: { name: string; description?: string }) =>
     request<Project>("/api/projects", json("POST", body)),
-  updateProject: (id: number, body: { name?: string; description?: string }) =>
+  updateProject: (id: number, body: { name?: string; description?: string; roles?: string[] }) =>
     request<Project>(`/api/projects/${id}`, json("PATCH", body)),
+  renameRole: (id: number, old: string, name: string) =>
+    request<Project>(`/api/projects/${id}/roles/rename`, json("POST", { old, new: name })),
   deleteProject: (id: number) => request<void>(`/api/projects/${id}`, json("DELETE")),
 
   suites: (projectId: number) => request<Suite[]>(`/api/projects/${projectId}/suites`),
@@ -134,14 +150,17 @@ export const api = {
   ) => request<Section>(`/api/sections/${id}`, json("PATCH", body)),
   deleteSection: (id: number) => request<void>(`/api/sections/${id}`, json("DELETE")),
 
-  cases: (projectId: number, f: CaseFilter) =>
-    request<CaseList>(`/api/projects/${projectId}/cases?${filterParams({ ...f })}&limit=5000`),
+  cases: (projectId: number, f: CaseFilter, page: Paging & { sort?: CaseSort } = { limit: 5000 }) =>
+    request<CaseList>(`/api/projects/${projectId}/cases?${filterParams({ ...f, ...page })}`),
   tags: (projectId: number) => request<string[]>(`/api/projects/${projectId}/tags`),
   customFields: (projectId: number) => request<FieldValues[]>(`/api/projects/${projectId}/custom-fields`),
+  caseValues: (projectId: number) => request<CaseValues>(`/api/projects/${projectId}/case-values`),
   case: (ref: number | string) => request<TestCase>(`/api/cases/${ref}`),
   createCase: (body: CaseInput) => request<TestCase>("/api/cases", json("POST", body)),
   updateCase: (id: number, body: Partial<CaseInput>) =>
     request<TestCase>(`/api/cases/${id}`, json("PATCH", body)),
+  bulkUpdateCases: (body: CaseBulkUpdate) =>
+    request<{ updated: number }>("/api/cases/bulk-update", json("POST", body)),
   deleteCase: (id: number) => request<void>(`/api/cases/${id}`, json("DELETE")),
   moveCases: (caseIds: number[], sectionId: number, position?: number) =>
     request<TestCase[]>(
@@ -158,7 +177,7 @@ export const api = {
   exportUrl: (suiteId: number, format: "csv" | "json") =>
     `/api/suites/${suiteId}/export?format=${format}`,
 
-  runs: (projectId: number, params: { closed?: boolean; limit?: number; offset?: number } = {}) =>
+  runs: (projectId: number, params: { closed?: boolean; sort?: RunSort } & Partial<Paging> = {}) =>
     request<RunList>(`/api/projects/${projectId}/runs?${filterParams(params)}`),
   run: (id: number) => request<TestRun>(`/api/runs/${id}`),
   createRun: (projectId: number, body: RunSelection & { name: string; description?: string }) =>

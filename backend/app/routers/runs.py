@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -99,6 +99,8 @@ async def list_runs(
     source: RunSource | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
+    sort: Literal["created_at", "name", "closed_at"] = "created_at",
+    order: Literal["asc", "desc"] = "desc",
 ) -> RunList:
     await get_or_404(session, Project, project_id)
     stmt = select(TestRun).where(TestRun.project_id == project_id)
@@ -109,7 +111,7 @@ async def list_runs(
     total = await session.scalar(select(func.count()).select_from(stmt.subquery()))
     runs = list(
         await session.scalars(
-            stmt.order_by(TestRun.created_at.desc(), TestRun.id.desc()).limit(limit).offset(offset)
+            stmt.order_by(*_run_order(sort, order)).limit(limit).offset(offset)
         )
     )
     stats = await run_stats(session, [r.id for r in runs])
@@ -117,6 +119,12 @@ async def list_runs(
         items=[RunOut.model_validate(r).model_copy(update={"stats": stats[r.id]}) for r in runs],
         total=total or 0,
     )
+
+
+def _run_order(sort: str, order: str) -> list:  # type: ignore[type-arg]
+    key = {"created_at": TestRun.created_at, "name": func.lower(TestRun.name), "closed_at": TestRun.closed_at}[sort]
+    desc = order == "desc"
+    return [(key.desc() if desc else key.asc()).nulls_last(), TestRun.id.desc() if desc else TestRun.id.asc()]
 
 
 @router.post("/projects/{project_id}/runs", response_model=RunOut, status_code=status.HTTP_201_CREATED)

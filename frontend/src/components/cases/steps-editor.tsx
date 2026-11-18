@@ -21,8 +21,8 @@ export function StepsEditor({ steps, onChange }: { steps: Step[]; onChange: (s: 
     <div className="rounded-md border" data-testid="steps-editor">
       <div className="grid grid-cols-[2rem_1fr_1fr_5.5rem] gap-2 border-b bg-muted/50 px-2 py-1.5 text-xs font-medium text-muted-foreground">
         <span>#</span>
-        <span>Action</span>
-        <span>Expected result</span>
+        <span>Step</span>
+        <span>Expected Result</span>
         <span />
       </div>
       {steps.length === 0 && (
