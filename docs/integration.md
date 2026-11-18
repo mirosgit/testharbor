@@ -101,6 +101,32 @@ test("C142 login with valid credentials", async ({ page }) => { ... });
 test("wrong password", { annotation: { type: "case_id", description: "C143" } }, async ({ page }) => { ... });
 ```
 
+#### Links to Playwright's HTML report
+
+Upload Playwright's **JSON** report instead of (or as well as) JUnit. It carries each test's id, so
+every case in the run links straight to that test's page in the HTML report
+(`index.html#?testId=…`). Test names, case IDs and automation keys work the same as with JUnit, and
+`@C142` tags are read as case IDs too.
+
+```ts
+// playwright.config.ts
+reporter: [
+  ["html", { open: "never" }],
+  ["json", { outputFile: "reports/results.json" }],
+],
+```
+
+```sh
+testcli upload reports/results.json --report-url "https://ci.example.com/artifacts/playwright-report/index.html"
+# or: curl ... -F "file=@reports/results.json" ".../runs/import-junit?report_url=https%3A%2F%2F…"
+```
+
+`--report-url` (`report_url` in the API, `TESTHARBOR_REPORT_URL` for the CLI) is where the HTML report
+is published: a CI artifact, S3, GitHub Pages, or `npx playwright show-report` locally. You can set or
+change it later on the run page (**⋯ › Report link…**), and the per-test links follow it. With
+JUnit from other tools, a `report_url` / `link` property holding an absolute URL is used as that
+test's link.
+
 ### Jest
 
 Use [`jest-junit`](https://github.com/jest-community/jest-junit) and put the ID in the test title:

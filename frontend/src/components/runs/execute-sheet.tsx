@@ -220,6 +220,16 @@ export function ResultItem({ r }: { r: TestResult }) {
         {r.duration_ms != null && (
           <span className="text-xs text-muted-foreground">{(r.duration_ms / 1000).toFixed(2)}s</span>
         )}
+        {r.report_link && (
+          <a
+            href={r.report_link}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+          >
+            <ExternalLink className="size-3" /> Open in report
+          </a>
+        )}
         <span className="ml-auto text-xs text-muted-foreground">
           {r.recorded_by && <>{r.recorded_by} · </>}
           {new Date(r.created_at).toLocaleString()}

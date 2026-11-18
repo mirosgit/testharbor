@@ -29,6 +29,7 @@ from app.schemas import (
     RunOut,
     RunPatch,
     RunSelection,
+    resolve_report_link,
 )
 from app.services import (
     add_cases_to_run,
@@ -71,7 +72,12 @@ def _latest_results(run_ids: list[int] | None = None, case_id: int | None = None
     return sub
 
 
-def _result_from_row(row) -> ResultOut | None:  # type: ignore[no-untyped-def]
+def _result_out(result: TestResult, report_url: str | None) -> ResultOut:
+    out = ResultOut.model_validate(result)
+    return out.model_copy(update={"report_link": resolve_report_link(report_url, result.report_link)})
+
+
+def _result_from_row(row, report_url: str | None) -> ResultOut | None:  # type: ignore[no-untyped-def]
     if row is None or getattr(row, "id", None) is None:
         return None
     return ResultOut(
@@ -84,6 +90,7 @@ def _result_from_row(row) -> ResultOut | None:  # type: ignore[no-untyped-def]
         error_message=row.error_message,
         stack_trace=row.stack_trace,
         recorded_by=getattr(row, "recorded_by", None),
+        report_link=resolve_report_link(report_url, row.report_link),
         created_at=row.created_at,
     )
 
@@ -159,6 +166,8 @@ async def update_run(run_id: int, body: RunPatch, session: Session) -> RunOut:
         run.name = body.name
     if body.description is not None:
         run.description = body.description
+    if "report_url" in body.model_fields_set:
+        run.report_url = body.report_url
     if body.closed is not None and body.closed != run.closed:
         run.closed = body.closed
         run.closed_at = datetime.now(UTC) if body.closed else None
@@ -183,7 +192,7 @@ async def list_run_cases(
     status_: Annotated[list[ResultStatus] | None, Query(alias="status")] = None,
 ) -> list[RunCaseOut]:
     """Cases in the run with their current status and latest result, in tree order."""
-    await get_or_404(session, TestRun, run_id)
+    run = await get_or_404(session, TestRun, run_id)
     latest = _latest_results(run_ids=[run_id])
     stmt = (
         select(RunCase.status.label("current"), TestCase, latest, User.name.label("recorded_by"))
@@ -217,7 +226,7 @@ async def list_run_cases(
             section_path=paths.get(r.TestCase.section_id, ""),
             status=r.current,
             result_count=r.n or 0,
-            last_result=_result_from_row(r),
+            last_result=_result_from_row(r, run.report_url),
         )
         for r in sorted(rows, key=order_key)
     ]
@@ -270,7 +279,7 @@ async def _check_members(session: AsyncSession, run_id: int, case_ids: set[int])
 @router.post("/runs/{run_id}/results", response_model=ResultOut, status_code=status.HTTP_201_CREATED)
 async def add_result(
     run_id: int, body: ResultIn, session: Session, principal: CurrentPrincipal
-) -> TestResult:
+) -> ResultOut:
     """Record a result for a case in the run. It becomes the case's current status."""
     run = await get_or_404(session, TestRun, run_id)
     ensure_open(run)
@@ -278,7 +287,7 @@ async def add_result(
     result = await record_result(session, run_id, body, principal.user.id)
     await session.commit()
     await session.refresh(result, ["user"])
-    return result
+    return _result_out(result, run.report_url)
 
 
 @router.post(
@@ -286,7 +295,7 @@ async def add_result(
 )
 async def add_results_bulk(
     run_id: int, body: BulkResultsIn, session: Session, principal: CurrentPrincipal
-) -> list[TestResult]:
+) -> list[ResultOut]:
     run = await get_or_404(session, TestRun, run_id)
     ensure_open(run)
     await _check_members(session, run_id, {r.case_id for r in body.results})
@@ -294,19 +303,19 @@ async def add_results_bulk(
     await session.commit()
     for r in results:
         await session.refresh(r, ["user"])
-    return results
+    return [_result_out(r, run.report_url) for r in results]
 
 
 @router.get("/runs/{run_id}/cases/{case_ref}/results", response_model=list[ResultOut])
-async def case_results_in_run(run_id: int, case_ref: str, session: Session) -> list[TestResult]:
+async def case_results_in_run(run_id: int, case_ref: str, session: Session) -> list[ResultOut]:
     """All results for one case in this run, newest first."""
-    await get_or_404(session, TestRun, run_id)
+    run = await get_or_404(session, TestRun, run_id)
     rows = await session.scalars(
         select(TestResult)
         .where(TestResult.run_id == run_id, TestResult.case_id == parse_case_ref(case_ref))
         .order_by(TestResult.created_at.desc(), TestResult.id.desc())
     )
-    return list(rows)
+    return [_result_out(r, run.report_url) for r in rows]
 
 
 @router.get("/cases/{case_ref}/history", response_model=list[CaseHistoryItem])
@@ -334,7 +343,7 @@ async def case_history(
             branch=r.TestRun.branch,
             status=r.current,
             result_count=r.n or 0,
-            last_result=_result_from_row(r),
+            last_result=_result_from_row(r, r.TestRun.report_url),
         )
         for r in rows
     ]

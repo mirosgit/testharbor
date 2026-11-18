@@ -182,7 +182,7 @@ export const api = {
   run: (id: number) => request<TestRun>(`/api/runs/${id}`),
   createRun: (projectId: number, body: RunSelection & { name: string; description?: string }) =>
     request<TestRun>(`/api/projects/${projectId}/runs`, json("POST", body)),
-  updateRun: (id: number, body: { name?: string; description?: string; closed?: boolean }) =>
+  updateRun: (id: number, body: { name?: string; description?: string; closed?: boolean; report_url?: string | null }) =>
     request<TestRun>(`/api/runs/${id}`, json("PATCH", body)),
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, json("DELETE")),
   runCases: (id: number) => request<RunCase[]>(`/api/runs/${id}/cases`),

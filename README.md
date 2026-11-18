@@ -47,6 +47,8 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
   - Tests are linked to cases by a case ID, then by automation key. Optionally, a case is created
     automatically for any test that doesn't match.
   - `testcli upload` CLI, which detects the branch, commit and build URL in CI.
+  - Playwright's JSON report is accepted too: each case in the run links to its test in
+    Playwright's HTML report.
   - A pytest plugin with a `@pytest.mark.case("C142")` marker.
 - **Team accounts.** Testers are invited with one-time links. There are two roles, Admin and
   Tester. Passwords are hashed with argon2id, sign-ins are locked after repeated failures, and
