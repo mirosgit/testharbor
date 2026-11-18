@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import CurrentPrincipal
 from app.case_import import parse_csv, parse_datetime, steps_to_text, text_to_steps  # noqa: F401
 from app.db import get_session
-from app.models import Section, Suite, TestCase
+from app.models import Project, Section, Suite, TestCase
 from app.schemas import CaseFields, ExtraColumn, ImportResult
 from app.services import CASE_REF, get_or_404, remember_roles, section_paths, suite_sections, tree_order
 
@@ -253,8 +253,16 @@ async def import_suite(
     for c in existing.values():
         next_pos[c.section_id] = max(next_pos.get(c.section_id, 0), c.position + 1)
 
+    # Roles take the project's spelling ("admin" in the file -> "Admin"); new ones are added
+    # to the project's Applicable Roles list after the import.
+    project = await get_or_404(session, Project, suite.project_id)
+    role_spelling = {r.lower(): r for r in project.roles}
+
     for n, row in enumerate(rows, start=1):
         label = f"row {row.get('_line', n + 1)}" if fmt == "csv" else f"case #{n}"
+        if isinstance(row.get("roles"), list):
+            row["roles"] = [role_spelling.setdefault(" ".join(str(r).split()).lower(), " ".join(str(r).split()))
+                            for r in row["roles"] if str(r).strip()]
         fields = {k: v for k, v in row.items() if k in CaseFields.model_fields and v is not None}
         try:
             data = CaseFields.model_validate(fields)
