@@ -278,3 +278,10 @@ An admin cannot demote or deactivate themselves. The system always keeps at leas
   - Sets "last updated by".
   - UI: "Edit" in the selection bar opens a dialog where every field defaults to "Keep as is".
 - **Import target.** The default is now "Top level (folders from the file)": `Patients>Enrolled` becomes `Patients › Enrolled` at the top of the suite, not inside a wrapper section. "New section…" and existing sections are still offered.
+
+## Phase 12: pickers, sorting, pagination
+
+- **Pickers.** Owner, Sprint, Tags, Roles and custom field names/values use searchable comboboxes (cmdk, the shadcn/ui Combobox pattern) instead of native `<datalist>`. Typing a new value offers "Use …" / "Add …" after the matches.
+- **Sorting.** `GET /api/projects/{id}/cases?sort=…&order=asc|desc` sorts within each section. Sections stay in tree order (`array_position` over the tree order), so grouping and drag-and-drop keep working. Keys: manual (drag order), id, title, priority, type, state, automation_status, owner, sprint (natural order), created_at, updated_at. Empty values go last. The runs list has `sort=created_at|name|closed_at`. The run page sorts its cases on the client.
+- **Pagination.** The case list is paged on the server (50/100/200/500 per page; the size and the sort are remembered per browser). Empty sections are shown on the page where they fall in tree order. Selection and "select all in section" apply to the current page.
+

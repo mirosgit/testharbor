@@ -13,6 +13,7 @@ import { Markdown } from "@/components/markdown";
 import { ExecuteSheet } from "@/components/runs/execute-sheet";
 import { passRate, percentDone, RunProgress, StatusCounts } from "@/components/runs/progress";
 import { CiMeta, RunSourceBadge, timeAgo } from "@/components/runs/run-meta";
+import { SortMenu, type SortOption, type SortState } from "@/components/sort-menu";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -30,6 +31,24 @@ import type { ResultStatus, RunCase } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const SETTABLE: ResultStatus[] = ["passed", "failed", "blocked", "retest", "skipped"];
+
+type RunCaseSort = "manual" | "id" | "title" | "priority" | "status" | "tested";
+const RUN_CASE_SORT_OPTIONS: SortOption<RunCaseSort>[] = [
+  { key: "manual", label: "Section order", fixed: true },
+  { key: "id", label: "ID" },
+  { key: "title", label: "Title" },
+  { key: "priority", label: "Priority", defaultOrder: "desc" },
+  { key: "status", label: "Status" },
+  { key: "tested", label: "Last tested", defaultOrder: "desc" },
+];
+const RUN_CASE_SORT_KEYS: Record<Exclude<RunCaseSort, "manual">, (c: RunCase) => string | number | null> = {
+  id: (c) => c.case_id,
+  title: (c) => c.title.toLowerCase(),
+  priority: (c) => ["low", "medium", "high", "critical"].indexOf(c.priority),
+  // Problems first in ascending order.
+  status: (c) => ["failed", "blocked", "retest", "untested", "skipped", "passed"].indexOf(c.status),
+  tested: (c) => c.last_result?.created_at ?? null,
+};
 
 export default function RunPage() {
   return (
@@ -55,6 +74,7 @@ function RunView() {
 
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
   const [q, setQ] = useState("");
+  const [sort, setSort] = useState<SortState<RunCaseSort>>({ sort: "manual", order: "asc" });
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [dialog, setDialog] = useState<"edit" | "delete" | null>(null);
 
@@ -82,8 +102,21 @@ function RunView() {
       if (!m.has(k)) m.set(k, []);
       m.get(k)!.push(c);
     }
+    if (sort.sort !== "manual") {
+      const key = RUN_CASE_SORT_KEYS[sort.sort];
+      const dir = sort.order === "desc" ? -1 : 1;
+      for (const list of m.values())
+        list.sort((a, b) => {
+          const x = key(a);
+          const y = key(b);
+          if (x === y) return a.case_id - b.case_id;
+          if (x === null) return 1; // empty values last either way
+          if (y === null) return -1;
+          return (x < y ? -1 : 1) * dir;
+        });
+    }
     return [...m.entries()];
-  }, [visible]);
+  }, [visible, sort]);
   const openCase = all.find((c) => c.case_id === openCaseId) ?? null;
 
   const invalidate = () => {
@@ -233,6 +266,7 @@ function RunView() {
               aria-label="Search run cases"
             />
           </div>
+          <SortMenu options={RUN_CASE_SORT_OPTIONS} value={sort} onChange={setSort} hint="Within each section" />
           {statusFilter.size > 0 && (
             <Button variant="ghost" size="sm" onClick={() => setStatusFilter(new Set())}>
               Clear status filter

@@ -1,7 +1,9 @@
 import type {
   CaseBulkUpdate,
+  CaseSort,
   CaseValues,
   FieldValues,
+  RunSort,
   ImportTarget,
   AdminUser,
   Invite,
@@ -93,6 +95,12 @@ export function filterParams(f: object): URLSearchParams {
   return p;
 }
 
+export interface Paging {
+  limit: number;
+  offset?: number;
+  order?: "asc" | "desc";
+}
+
 export const api = {
   setupStatus: () => request<{ has_users: boolean }>("/api/auth/setup-status"),
   login: (email: string, password: string) =>
@@ -142,8 +150,8 @@ export const api = {
   ) => request<Section>(`/api/sections/${id}`, json("PATCH", body)),
   deleteSection: (id: number) => request<void>(`/api/sections/${id}`, json("DELETE")),
 
-  cases: (projectId: number, f: CaseFilter) =>
-    request<CaseList>(`/api/projects/${projectId}/cases?${filterParams({ ...f })}&limit=5000`),
+  cases: (projectId: number, f: CaseFilter, page: Paging & { sort?: CaseSort } = { limit: 5000 }) =>
+    request<CaseList>(`/api/projects/${projectId}/cases?${filterParams({ ...f, ...page })}`),
   tags: (projectId: number) => request<string[]>(`/api/projects/${projectId}/tags`),
   customFields: (projectId: number) => request<FieldValues[]>(`/api/projects/${projectId}/custom-fields`),
   caseValues: (projectId: number) => request<CaseValues>(`/api/projects/${projectId}/case-values`),
@@ -169,7 +177,7 @@ export const api = {
   exportUrl: (suiteId: number, format: "csv" | "json") =>
     `/api/suites/${suiteId}/export?format=${format}`,
 
-  runs: (projectId: number, params: { closed?: boolean; limit?: number; offset?: number } = {}) =>
+  runs: (projectId: number, params: { closed?: boolean; sort?: RunSort } & Partial<Paging> = {}) =>
     request<RunList>(`/api/projects/${projectId}/runs?${filterParams(params)}`),
   run: (id: number) => request<TestRun>(`/api/runs/${id}`),
   createRun: (projectId: number, body: RunSelection & { name: string; description?: string }) =>

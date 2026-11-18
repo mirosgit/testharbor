@@ -21,7 +21,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { CaseSheet, type SheetState } from "@/components/cases/case-sheet";
@@ -30,6 +30,7 @@ import { emptyFilters, FilterBar, isFiltered, toCaseFilter, type Filters } from 
 import { ImportDialog } from "@/components/cases/import-dialog";
 import { BulkEditDialog } from "@/components/cases/bulk-edit-dialog";
 import { MoveDialog } from "@/components/cases/move-dialog";
+import { Pager, SortMenu, type SortOption, type SortState } from "@/components/sort-menu";
 import { SectionTree } from "@/components/cases/section-tree";
 import { CaseHistory } from "@/components/runs/case-history";
 import { CreateRunButton } from "@/components/runs/create-run-dialog";
@@ -52,7 +53,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api";
 import { buildTree, flatten, type SectionNode } from "@/lib/tree";
-import type { Suite, TestCase } from "@/lib/types";
+import type { CaseSort, Suite, TestCase } from "@/lib/types";
 
 type Dialog =
   | { kind: "newSuite" }
@@ -66,6 +67,37 @@ type Dialog =
   | { kind: "bulkDelete" }
   | { kind: "bulkEdit" }
   | null;
+
+const CASE_SORT_OPTIONS: SortOption<CaseSort>[] = [
+  { key: "manual", label: "Manual order", fixed: true },
+  { key: "id", label: "ID" },
+  { key: "title", label: "Title" },
+  { key: "priority", label: "Priority", defaultOrder: "desc" },
+  { key: "state", label: "State" },
+  { key: "type", label: "Type" },
+  { key: "automation_status", label: "Automation" },
+  { key: "owner", label: "Owner" },
+  { key: "sprint", label: "Sprint", defaultOrder: "desc" },
+  { key: "created_at", label: "Created", defaultOrder: "desc" },
+  { key: "updated_at", label: "Updated", defaultOrder: "desc" },
+];
+
+/** Per-browser view preferences; storage may be unavailable. */
+function readPref<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function writePref(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore
+  }
+}
 
 export default function CasesPage() {
   return (
@@ -130,17 +162,39 @@ function CasesWorkspace() {
 
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const filtered = isFiltered(filters);
+  const [sort, setSortState] = useState<SortState<CaseSort>>({ sort: "manual", order: "asc" });
+  const [pageSize, setPageSizeState] = useState(100);
+  const [page, setPage] = useState(0);
+  useEffect(() => {
+    // Remembered per browser; read after mount so server and client render the same.
+    const saved = readPref<SortState<CaseSort>>("testharbor-case-sort", { sort: "manual", order: "asc" });
+    if (CASE_SORT_OPTIONS.some((o) => o.key === saved.sort) && ["asc", "desc"].includes(saved.order)) setSortState(saved);
+    const size = readPref("testharbor-case-page-size", 100);
+    if ([50, 100, 200, 500].includes(size)) setPageSizeState(size);
+  }, []);
+  // Back to the first page whenever what is listed changes.
+  useEffect(() => setPage(0), [suiteId, sectionId, filters, sort, pageSize]);
+  const setSort = (v: SortState<CaseSort>) => {
+    setSortState(v);
+    writePref("testharbor-case-sort", v);
+  };
+  const setPageSize = (n: number) => {
+    setPageSizeState(n);
+    writePref("testharbor-case-page-size", n);
+  };
   const casesQ = useQuery({
-    queryKey: ["cases", projectId, suiteId, sectionId, filters],
+    queryKey: ["cases", projectId, suiteId, sectionId, filters, sort, page, pageSize],
     queryFn: () =>
-      api.cases(projectId, {
-        suite_id: suiteId,
-        section_id: sectionId ?? undefined,
-        ...toCaseFilter(filters),
-      }),
+      api.cases(
+        projectId,
+        { suite_id: suiteId, section_id: sectionId ?? undefined, ...toCaseFilter(filters) },
+        { sort: sort.sort, order: sort.order, limit: pageSize, offset: page * pageSize },
+      ),
     enabled: !!suiteId,
     placeholderData: (prev) => prev,
   });
+  const total = casesQ.data?.total ?? 0;
+  const lastPage = (page + 1) * pageSize >= total;
   const { data: tags = [] } = useQuery({ queryKey: ["tags", projectId], queryFn: () => api.tags(projectId) });
   const { data: fieldOptions = [] } = useQuery({
     queryKey: ["custom-fields", projectId],
@@ -165,15 +219,24 @@ function CasesWorkspace() {
       const root = flat.find((s) => s.id === sectionId);
       scope = root ? flatten([root]) : [];
     }
+    // With several pages, empty sections are shown on the page where they fall in tree order.
+    let lo = 0;
+    let hi = scope.length - 1;
+    const hit = scope.map((s, i) => (bySection.has(s.id) ? i : -1)).filter((i) => i >= 0);
+    if (hit.length) {
+      if (page > 0) lo = hit[0];
+      if (!lastPage) hi = hit[hit.length - 1];
+    }
     return scope
+      .filter((_, i) => i >= lo && i <= hi)
       // Parent sections with no direct cases only add noise; their children are listed.
       .filter((s) => (filtered ? bySection.has(s.id) : bySection.has(s.id) || s.children.length === 0))
       .map((s) => ({
         section: s,
         path: paths.get(s.id) ?? s.name,
-        cases: (bySection.get(s.id) ?? []).sort((a, b) => a.position - b.position || a.id - b.id),
+        cases: bySection.get(s.id) ?? [], // already in the server's order
       }));
-  }, [casesQ.data, flat, sectionId, filtered, paths]);
+  }, [casesQ.data, flat, sectionId, filtered, paths, page, lastPage]);
   const visibleCases = useMemo(() => groups.flatMap((g) => g.cases), [groups]);
 
   // --- Selection ----------------------------------------------------------------------
@@ -407,7 +470,12 @@ function CasesWorkspace() {
                 </Button>
               </div>
             </div>
-            <FilterBar value={filters} onChange={setFilters} tags={tags} fields={fieldOptions} values={caseValues} />
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <FilterBar value={filters} onChange={setFilters} tags={tags} fields={fieldOptions} values={caseValues} />
+              </div>
+              <SortMenu options={CASE_SORT_OPTIONS} value={sort} onChange={setSort} hint="Within each section" />
+            </div>
             {selectedIds.length > 0 && (
               <div className="flex items-center gap-2 rounded-md bg-primary/5 px-3 py-1.5 text-sm">
                 <span className="font-medium">{selectedIds.length} selected</span>
@@ -458,6 +526,11 @@ function CasesWorkspace() {
                 activeCaseId={openCaseId ?? undefined}
                 draggingIds={new Set(dragIds)}
               />
+            )}
+            {casesQ.data && (
+              <div className="mt-4">
+                <Pager page={page} pageSize={pageSize} total={total} onPage={setPage} onPageSize={setPageSize} />
+              </div>
             )}
           </div>
         </main>

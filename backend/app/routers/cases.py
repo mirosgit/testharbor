@@ -1,8 +1,9 @@
 import re
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select, text
+from sqlalchemy import Integer, case, cast, func, literal, select, text
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import CurrentPrincipal
@@ -40,6 +41,7 @@ from app.services import (
     next_case_position,
     parse_case_ref,
     remember_roles,
+    tree_order,
 )
 
 router = APIRouter(prefix="/api", tags=["cases"])
@@ -102,6 +104,31 @@ def case_filter_params(
         raise HTTPException(422, str(e)) from e
 
 
+def _rank(column, members):  # type: ignore[no-untyped-def]
+    return case({m: i for i, m in enumerate(members)}, value=column)
+
+
+# Sort keys for the case list. Within a section; sections stay in tree order.
+CASE_SORTS = {
+    "id": lambda: [TestCase.id],
+    "title": lambda: [func.lower(TestCase.title)],
+    "priority": lambda: [_rank(TestCase.priority, list(Priority))],  # asc: low -> critical
+    "type": lambda: [_rank(TestCase.type, list(CaseType))],
+    "state": lambda: [_rank(TestCase.state, list(CaseState))],
+    "automation_status": lambda: [_rank(TestCase.automation_status, list(AutomationStatus))],
+    "owner": lambda: [func.lower(TestCase.owner)],
+    # Natural order: "Sprint 9" before "Sprint 10".
+    "sprint": lambda: [
+        func.lower(func.regexp_replace(TestCase.sprint, r"\d+", "", "g")),
+        cast(func.substring(TestCase.sprint, r"(\d+)"), Integer),
+    ],
+    "created_at": lambda: [TestCase.created_at],
+    "updated_at": lambda: [TestCase.updated_at],
+}
+CaseSort = Literal["manual", "id", "title", "priority", "type", "state", "automation_status", "owner",
+                   "sprint", "created_at", "updated_at"]
+
+
 @router.get("/projects/{project_id}/cases", response_model=CaseList)
 async def list_cases(
     project_id: int,
@@ -109,12 +136,32 @@ async def list_cases(
     f: Annotated[CaseFilter, Depends(case_filter_params)],
     limit: Annotated[int, Query(ge=1, le=5000)] = 500,
     offset: Annotated[int, Query(ge=0)] = 0,
+    sort: Annotated[CaseSort, Query(description="Order within each section; manual = drag-and-drop order")] = "manual",
+    order: Literal["asc", "desc"] = "asc",
 ) -> CaseList:
+    """Cases grouped by suite and section (in tree order), sorted within each section."""
     await get_or_404(session, Project, project_id)
     stmt = await filtered_cases_query(session, project_id, f)
     total = await session.scalar(select(func.count()).select_from(stmt.subquery()))
+
+    suite_ids = (
+        [f.suite_id] if f.suite_id is not None
+        else list(await session.scalars(select(Suite.id).where(Suite.project_id == project_id)))
+    )
+    sections = list(await session.scalars(select(Section).where(Section.suite_id.in_(suite_ids))))
+    section_order = literal(tree_order(sections), ARRAY(Integer))
+    keys = []
+    if sort != "manual":
+        for k in CASE_SORTS[sort]():
+            keys.append((k.desc() if order == "desc" else k.asc()).nulls_last())
     rows = await session.scalars(
-        stmt.order_by(TestCase.suite_id, TestCase.section_id, TestCase.position, TestCase.id)
+        stmt.order_by(
+            TestCase.suite_id,
+            func.array_position(section_order, TestCase.section_id),
+            *keys,
+            TestCase.position,
+            TestCase.id,
+        )
         .limit(limit)
         .offset(offset)
     )
