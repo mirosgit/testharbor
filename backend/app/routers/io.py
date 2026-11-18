@@ -322,6 +322,8 @@ async def import_suite(
         if case.external_id:
             by_external[case.external_id] = case
 
+    # New roles join the project's Applicable Roles list; spellings of one role are unified
+    # ("admin" -> "Admin", "Super Admin" -> "Super Admin (SA)").
     await remember_roles(session, suite.project_id, [r for c in existing.values() for r in c.roles])
     if dry_run:
         await session.rollback()

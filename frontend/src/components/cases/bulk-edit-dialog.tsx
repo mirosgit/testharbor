@@ -207,12 +207,13 @@ export function BulkEditDialog({
             )}
             {freeText("owner", "Owner", known?.owners ?? [])}
             {freeText("sprint", "Sprint", known?.sprints ?? [])}
-            <Row label="Add roles" htmlFor="bulk-add-roles">
-              <RolePicker placeholder="Roles to add" id="bulk-add-roles" value={addRoles} onChange={setAddRoles} options={known?.roles ?? []} projectId={projectId} />
+            <Row label="Add Applicable Roles" htmlFor="bulk-add-roles">
+              <RolePicker placeholder="Roles to add" aria-label="Add Applicable Roles" id="bulk-add-roles" value={addRoles} onChange={setAddRoles} options={known?.roles ?? []} projectId={projectId} />
             </Row>
-            <Row label="Remove roles" htmlFor="bulk-remove-roles">
+            <Row label="Remove Applicable Roles" htmlFor="bulk-remove-roles">
               <RolePicker
                 placeholder="Roles to remove"
+                aria-label="Remove Applicable Roles"
                 id="bulk-remove-roles"
                 value={removeRoles}
                 onChange={setRemoveRoles}
