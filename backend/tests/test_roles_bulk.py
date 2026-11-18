@@ -51,7 +51,7 @@ async def test_bulk_update(client: AsyncClient, make, tester: AsyncClient) -> No
         assert "old" not in c["tags"] and "regression" in c["tags"]
         assert c["updated_by"] == "Tom Tester"
     assert ca["tags"] == ["smoke", "regression"] and ca["roles"] == ["Nurse", "Doctor"]
-    assert cb["roles"] == ["Doctor", "nurse"]
+    assert cb["roles"] == ["Doctor", "Nurse"]  # the project's spelling
     assert ca["type"] == a["type"]  # untouched fields stay
 
     r = await client.post("/api/cases/bulk-update", json={"case_ids": [a["id"]], "remove_roles": ["NURSE"]})
@@ -94,3 +94,46 @@ async def test_import_creates_applicable_roles(client: AsyncClient, make) -> Non
     cases = {c["external_id"]: c["roles"] for c in
              (await client.get(f"/api/projects/{p['id']}/cases")).json()["items"]}
     assert cases == {"TC-1": ["ADMIN", "Care Coach"], "TC-2": ["Care Coach", "Patient"], "TC-3": []}
+
+
+def test_role_key_abbreviations() -> None:
+    from app.schemas import _clean_roles, role_key
+
+    assert role_key("Super Admin (SA)") == role_key("super admin") == "super admin"
+    assert role_key("Patient Manager (PaM)") == "patient manager"
+    assert role_key("PA Specialist (PA)") == "pa specialist"
+    assert role_key("Provider (Pr)") == "provider"
+    # Not an abbreviation of the name: part of the role's name.
+    assert role_key("Admin (read-only)") == "admin (read-only)"
+    assert role_key("Admin (Beta)") == "admin (beta)"
+    assert role_key("Care Coach (XY)") == "care coach (xy)"
+    assert _clean_roles(["Provider", "Super Admin", "Provider (Pr)"]) == ["Provider (Pr)", "Super Admin"]
+
+
+async def test_abbreviated_roles_merge_with_plain_ones(client: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]
+    """Roles added by hand ("Super Admin") and the same roles from a BrowserStack export
+    ("Super Admin (SA)") end up as one role, spelled as in the export."""
+    p = await make.project()
+    s = await make.suite(p["id"])
+    sec = await make.section(s["id"])
+    manual = await make.case(sec["id"], "By hand", roles=["Super Admin", "Provider"])
+    csv_text = (
+        "Test Case ID,Title,Folder Path,Applicable Roles\n"
+        'TC-1,One,Area,"Admin (A),Provider (Pr),Super Admin (SA)"\n'
+    )
+    r = await client.post(f"/api/suites/{s['id']}/import",
+                          files={"file": ("export.csv", csv_text.encode(), "text/csv")})
+    assert r.status_code == 200, r.text
+    assert (await client.get(f"/api/projects/{p['id']}")).json()["roles"] == [
+        "Super Admin (SA)", "Provider (Pr)", "Admin (A)"]
+    assert (await client.get(f"/api/cases/{manual['id']}")).json()["roles"] == ["Super Admin (SA)", "Provider (Pr)"]
+    imported = (await client.get(f"/api/projects/{p['id']}/cases", params={"q": "TC-1"})).json()["items"][0]
+    assert imported["roles"] == ["Admin (A)", "Provider (Pr)", "Super Admin (SA)"]
+
+    # Picking the short spelling later maps to the existing role, not a new one.
+    r = await client.patch(f"/api/cases/{manual['id']}", json={"roles": ["super admin", "Patient"]})
+    assert r.json()["roles"] == ["Super Admin (SA)", "Patient"]
+    assert (await client.get(f"/api/projects/{p['id']}")).json()["roles"] == [
+        "Super Admin (SA)", "Provider (Pr)", "Admin (A)", "Patient"]
+    assert (await client.get(f"/api/projects/{p['id']}/case-values")).json()["roles"] == [
+        "Super Admin (SA)", "Provider (Pr)", "Admin (A)", "Patient"]
