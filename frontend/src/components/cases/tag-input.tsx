@@ -8,19 +8,28 @@ export function TagInput({
   onChange,
   suggestions = [],
   id,
+  lowercase = true,
+  placeholder = "Add tags…",
+  noun = "tag",
 }: {
   value: string[];
   onChange: (tags: string[]) => void;
   suggestions?: string[];
   id?: string;
+  /** Tags are lowercased; other lists (e.g. roles) keep their spelling. */
+  lowercase?: boolean;
+  placeholder?: string;
+  noun?: string;
 }) {
   const [draft, setDraft] = useState("");
   const listId = useId();
+  const has = (list: string[], t: string) => list.some((x) => x.toLowerCase() === t.toLowerCase());
   const add = (raw: string) => {
-    const tags = raw
-      .split(",")
-      .map((t) => t.trim().toLowerCase())
-      .filter((t) => t && !value.includes(t));
+    const tags: string[] = [];
+    for (const part of raw.split(",")) {
+      const t = lowercase ? part.trim().toLowerCase() : part.trim().replace(/\s+/g, " ");
+      if (t && !has(value, t) && !has(tags, t)) tags.push(t);
+    }
     if (tags.length) onChange([...value, ...tags]);
     setDraft("");
   };
@@ -34,7 +43,7 @@ export function TagInput({
             type="button"
             className="text-muted-foreground hover:text-foreground"
             onClick={() => onChange(value.filter((x) => x !== t))}
-            aria-label={`Remove tag ${t}`}
+            aria-label={`Remove ${noun} ${t}`}
           >
             <X className="size-3" />
           </button>
@@ -44,7 +53,7 @@ export function TagInput({
         id={id}
         list={listId}
         value={draft}
-        placeholder={value.length ? "" : "Add tags…"}
+        placeholder={value.length ? "" : placeholder}
         className="min-w-24 flex-1 bg-transparent text-sm outline-none"
         onChange={(e) => {
           const v = e.target.value;
@@ -63,7 +72,7 @@ export function TagInput({
       />
       <datalist id={listId}>
         {suggestions
-          .filter((s) => !value.includes(s))
+          .filter((s) => !has(value, s))
           .map((s) => (
             <option key={s} value={s} />
           ))}

@@ -9,7 +9,10 @@ from typing import Annotated
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from app.models import (
+    AutomationComplexity,
+    AutomationProgress,
     AutomationStatus,
+    CaseState,
     CaseType,
     InvitePurpose,
     Priority,
@@ -201,7 +204,27 @@ def _clean_key(v: str | None) -> str | None:
     return v or None
 
 
+def _clean_roles(v: list[str]) -> list[str]:
+    """Trim and dedupe case-insensitively, keeping the first spelling."""
+    seen: dict[str, str] = {}
+    for r in v:
+        r = " ".join(r.split())[:100]
+        if r:
+            seen.setdefault(r.lower(), r)
+    return list(seen.values())
+
+
+def _clean_text(v: str | None) -> str | None:
+    if v is None:
+        return None
+    v = " ".join(v.split())
+    return v or None
+
+
 Tags = Annotated[list[str], AfterValidator(_clean_tags)]
+Roles = Annotated[list[str], AfterValidator(_clean_roles)]
+Owner = Annotated[str | None, Field(max_length=200), AfterValidator(_clean_text)]
+Sprint = Annotated[str | None, Field(max_length=100), AfterValidator(_clean_text)]
 
 
 class CustomField(BaseModel):
@@ -240,7 +263,18 @@ class CaseFields(BaseModel):
     automation_status: AutomationStatus = AutomationStatus.manual
     automation_key: AutomationKey = None
     external_id: ExternalId = None
+    state: CaseState = CaseState.active
+    owner: Owner = None
+    automation_complexity: AutomationComplexity | None = None
+    automation_progress: AutomationProgress | None = None
+    sprint: Sprint = None
+    roles: Roles = []
     custom_fields: CustomFields = []
+
+
+# Nullable fields a PATCH may clear by sending null.
+CLEARABLE_FIELDS = ("automation_key", "external_id", "owner", "automation_complexity",
+                    "automation_progress", "sprint")
 
 
 class CaseIn(CaseFields):
@@ -259,6 +293,12 @@ class CasePatch(BaseModel):
     automation_status: AutomationStatus | None = None
     automation_key: AutomationKey = None
     external_id: ExternalId = None
+    state: CaseState | None = None
+    owner: Owner = None
+    automation_complexity: AutomationComplexity | None = None
+    automation_progress: AutomationProgress | None = None
+    sprint: Sprint = None
+    roles: Roles | None = None
     custom_fields: CustomFields | None = None
 
 
@@ -278,10 +318,17 @@ class CaseOut(ORM):
     automation_status: AutomationStatus
     automation_key: str | None
     external_id: str | None
+    state: CaseState
+    owner: str | None
+    automation_complexity: AutomationComplexity | None
+    automation_progress: AutomationProgress | None
+    sprint: str | None
+    roles: list[str]
     custom_fields: list[CustomField]
     position: int
     created_at: datetime
     updated_at: datetime
+    updated_by: str | None
 
 
 class CaseList(BaseModel):
@@ -307,6 +354,12 @@ class CaseFilter(BaseModel):
     priority: list[Priority] = []
     type: list[CaseType] = []
     automation_status: list[AutomationStatus] = []
+    state: list[CaseState] = []
+    automation_complexity: list[AutomationComplexity] = []
+    automation_progress: list[AutomationProgress] = []
+    owner: list[str] = []  # any of
+    sprint: list[str] = []  # any of
+    roles: list[str] = []  # cases with any of these roles
     # Custom field name -> accepted values (any of them); several names must all match.
     fields: dict[str, list[str]] = {}
 
@@ -314,6 +367,14 @@ class CaseFilter(BaseModel):
 class FieldValues(BaseModel):
     name: str
     values: list[str]
+
+
+class CaseValues(BaseModel):
+    """Values in use in a project, for autocomplete and filters."""
+
+    owners: list[str]  # case owners plus active users' names
+    sprints: list[str]
+    roles: list[str]
 
 
 # --- Import / export -----------------------------------------------------------------

@@ -25,7 +25,7 @@ import { toast } from "sonner";
 
 import { CaseSheet, type SheetState } from "@/components/cases/case-sheet";
 import { CaseTable, type CaseGroup } from "@/components/cases/case-table";
-import { emptyFilters, FilterBar, isFiltered, type Filters } from "@/components/cases/filter-bar";
+import { emptyFilters, FilterBar, isFiltered, toCaseFilter, type Filters } from "@/components/cases/filter-bar";
 import { ImportDialog } from "@/components/cases/import-dialog";
 import { MoveDialog } from "@/components/cases/move-dialog";
 import { SectionTree } from "@/components/cases/section-tree";
@@ -133,12 +133,7 @@ function CasesWorkspace() {
       api.cases(projectId, {
         suite_id: suiteId,
         section_id: sectionId ?? undefined,
-        q: filters.q || undefined,
-        tags: filters.tags,
-        priority: filters.priority,
-        type: filters.type,
-        automation_status: filters.automation_status,
-        fields: filters.fields,
+        ...toCaseFilter(filters),
       }),
     enabled: !!suiteId,
     placeholderData: (prev) => prev,
@@ -147,6 +142,10 @@ function CasesWorkspace() {
   const { data: fieldOptions = [] } = useQuery({
     queryKey: ["custom-fields", projectId],
     queryFn: () => api.customFields(projectId),
+  });
+  const { data: caseValues } = useQuery({
+    queryKey: ["case-values", projectId],
+    queryFn: () => api.caseValues(projectId),
   });
 
   // Group cases by section in tree order. Without filters show every section in scope
@@ -197,6 +196,7 @@ function CasesWorkspace() {
     qc.invalidateQueries({ queryKey: ["suites", projectId] });
     qc.invalidateQueries({ queryKey: ["projects"] });
     qc.invalidateQueries({ queryKey: ["custom-fields", projectId] });
+    qc.invalidateQueries({ queryKey: ["case-values", projectId] });
     qc.invalidateQueries({ queryKey: ["tags", projectId] });
   };
   const fail = (e: unknown) => toast.error(e instanceof ApiError ? e.message : "Something went wrong");
@@ -404,7 +404,7 @@ function CasesWorkspace() {
                 </Button>
               </div>
             </div>
-            <FilterBar value={filters} onChange={setFilters} tags={tags} fields={fieldOptions} />
+            <FilterBar value={filters} onChange={setFilters} tags={tags} fields={fieldOptions} values={caseValues} />
             {selectedIds.length > 0 && (
               <div className="flex items-center gap-2 rounded-md bg-primary/5 px-3 py-1.5 text-sm">
                 <span className="font-medium">{selectedIds.length} selected</span>

@@ -3,7 +3,7 @@
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { GripVertical, Plus } from "lucide-react";
 
-import { AutomationIcon, PriorityBadge, Tag } from "@/components/badges";
+import { AutomationIcon, PriorityBadge, StateBadge, Tag } from "@/components/badges";
 import { Checkbox } from "@/components/ui/checkbox";
 import { typeLabel } from "@/lib/labels";
 import type { SectionNode } from "@/lib/tree";
@@ -172,6 +172,7 @@ function CaseRow({
       <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 text-left">
         <span className="w-14 shrink-0 font-mono text-xs text-muted-foreground">{c.key}</span>
         <span className="min-w-0 flex-1 truncate">{c.title}</span>
+        {c.state !== "active" && <StateBadge state={c.state} className="shrink-0" />}
         <span className="hidden shrink-0 gap-1 lg:flex">
           {c.tags.slice(0, 3).map((t) => (
             <Tag key={t}>{t}</Tag>

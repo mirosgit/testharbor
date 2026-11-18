@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, ApiError } from "@/lib/api";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 function safeNext(next: string | null) {
   return next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
@@ -96,6 +97,7 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
+      <ThemeToggle className="fixed top-3 right-3" />
       <Suspense>
         <LoginForm />
       </Suspense>

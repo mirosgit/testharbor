@@ -136,7 +136,7 @@ function ExecuteBody({
                     status === s && statusBg[s],
                   )}
                 >
-                  <span className={cn("size-2 rounded-full", statusBg[s], status === s && "bg-white")} />
+                  <span className={cn("size-2 rounded-full", statusBg[s], status === s && "bg-primary-foreground")} />
                   {statusLabel[s]}
                 </button>
               ))}
