@@ -12,9 +12,11 @@ import csv
 import io
 import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
-from app.models import AutomationStatus, CaseType, Priority
+from app.models import AutomationComplexity, AutomationProgress, AutomationStatus, CaseState, CaseType, Priority
 
 _STEP_LINE = re.compile(r"^\s*(\d+)[.)]\s+(.*)$")
 _LIST_MARKER = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
@@ -40,7 +42,20 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "automation_status": ("automation_status", "automation", "automation_state"),
     "automation_key": ("automation_key",),
     "external_id": ("external_id", "test_case_id", "case_id", "key", "test_id", "issue_key"),
+    "state": ("state", "case_state", "test_case_state"),
+    "owner": ("owner", "case_owner", "assignee", "assigned_to"),
+    "automation_complexity": ("automation_complexity", "complexity"),
+    "automation_progress": ("automation_progress", "automation_status_custom"),
+    "sprint": ("sprint", "sprint_no", "sprint_number", "iteration"),
+    "roles": ("roles", "applicable_roles", "role", "user_roles"),
+    "created_at": ("created_at", "created_on", "created", "creation_date"),
+    "updated_at": ("updated_at", "last_updated_at", "updated_on", "last_updated_on", "modified_at"),
+    "updated_by": ("updated_by", "last_updated_by", "modified_by"),
 }
+
+# Built-in fields that older imports stored as custom fields (see migration 0005).
+PROMOTED_FIELDS = ("state", "owner", "automation_complexity", "automation_progress", "sprint", "roles",
+                   "created_at", "updated_at", "updated_by")
 
 
 # Tool-internal columns that are not worth keeping as custom fields by default.
@@ -164,6 +179,87 @@ def map_automation(value: str) -> tuple[AutomationStatus | None, str | None]:
     return None, f"automation status {value!r} not recognized, used manual"
 
 
+def _norm_value(value: str) -> str:
+    return re.sub(r"[_\s]+", " ", (value or "").strip().lower())
+
+
+_STATE = {
+    CaseState.draft: {"draft", "new"},
+    CaseState.active: {"active", "approved", "ready", "actual"},
+    CaseState.pending_review: {"pending review", "in review", "review", "under review", "needs review"},
+    CaseState.outdated: {"outdated", "deprecated", "obsolete", "archived"},
+    CaseState.rejected: {"rejected", "declined"},
+}
+
+
+def map_state(value: str) -> tuple[CaseState | None, str | None]:
+    t = _norm_value(value)
+    if t in _EMPTY:
+        return None, None
+    for st, names in _STATE.items():
+        if t in names:
+            return st, None
+    return None, f"state {value!r} not recognized, used active"
+
+
+def map_complexity(value: str) -> tuple[AutomationComplexity | None, str | None]:
+    t = _norm_value(value)
+    if t in _EMPTY:
+        return None, None
+    if t in ("n/a", "na") or re.search(r"not\s*a?p+li?cable", t):  # also the "Not Aplicable" typo
+        return AutomationComplexity.not_applicable, None
+    for c, names in ((AutomationComplexity.low, {"low", "easy", "simple"}),
+                     (AutomationComplexity.medium, {"medium", "moderate", "normal"}),
+                     (AutomationComplexity.high, {"high", "hard", "complex", "difficult"})):
+        if t in names:
+            return c, None
+    return None, f"automation complexity {value!r} not recognized, left empty"
+
+
+def map_progress(value: str) -> tuple[AutomationProgress | None, str | None]:
+    t = _norm_value(value)
+    if t in _EMPTY:
+        return None, None
+    if any(x in t for x in ("cannot", "can not", "can't", "not applicable", "won't")):
+        return AutomationProgress.cannot_be_automated, None
+    if any(x in t for x in ("progress", "in work", "ongoing", "started", "wip")):
+        return AutomationProgress.in_progress, None
+    if any(x in t for x in ("not automated", "to be automated", "to do", "todo", "backlog", "planned", "manual")):
+        return AutomationProgress.not_automated, None
+    if "automated" in t or t == "done":
+        return AutomationProgress.automated, None
+    return None, f"automation progress {value!r} not recognized, left empty"
+
+
+_DATE_FORMATS = ("%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%m/%d/%Y %I:%M %p", "%m/%d/%Y %I:%M:%S %p",
+                 "%m/%d/%Y", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M",
+                 "%d.%m.%Y")
+
+
+def parse_datetime(value: str) -> tuple[datetime | None, str | None]:
+    """ISO 8601, or US "06/22/2026 09:26:20" as BrowserStack/TestRail export it. No timezone = UTC."""
+    t = (value or "").strip()
+    if t.lower() in _EMPTY:
+        return None, None
+    dt = None
+    try:
+        dt = datetime.fromisoformat(t.replace("Z", "+00:00"))
+    except ValueError:
+        for fmt in _DATE_FORMATS:
+            try:
+                dt = datetime.strptime(t, fmt)
+                break
+            except ValueError:
+                continue
+    if dt is None:
+        return None, f"date {value!r} not recognized, ignored"
+    return (dt if dt.tzinfo else dt.replace(tzinfo=UTC)), None
+
+
+def split_list(value: str) -> list[str]:
+    return [p.strip() for p in re.split(r"[,;\n]", value or "") if p.strip()]
+
+
 # --- CSV -------------------------------------------------------------------------------
 
 
@@ -176,7 +272,7 @@ def parse_csv(text: str, columns: set[str] | None = None) -> ParsedCsv:
     """Rows as dicts with TestHarbor field names (values still strings/lists, unvalidated).
 
     Columns that have data but no built-in field become custom fields: the ones named in
-    `columns` (matched case-insensitively), or by default all except tool-internal noise.
+    `columns` (matched case-insensitively), or by default all except other tools' internal ones.
     """
     reader = csv.reader(io.StringIO(text), delimiter=_delimiter(text))
     try:
@@ -209,7 +305,9 @@ def parse_csv(text: str, columns: set[str] | None = None) -> ParsedCsv:
     wanted = {c.strip().lower() for c in columns} if columns is not None else None
     extra = [
         (i, headers[i].strip(),
-         headers[i].strip().lower() in wanted if wanted is not None else normalized[i] not in NOISE_COLUMNS)
+         headers[i].strip().lower() in wanted if wanted is not None
+         # In our own export every extra column is a custom field somebody created.
+         else own_format or normalized[i] not in NOISE_COLUMNS)
         for i in extra_idx
     ]
 
@@ -220,30 +318,36 @@ def parse_csv(text: str, columns: set[str] | None = None) -> ParsedCsv:
     rows, warnings = [], []
     for n, r in raw_rows:
         pre = unwrap(cell(r, "preconditions"))
-        desc = unwrap(cell(r, "description"))
-        if desc:
-            pre = f"{desc}\n\n{pre}" if pre else desc
         row: dict[str, Any] = {
             "_line": n,
             "id": cell(r, "id"),
             "external_id": cell(r, "external_id").strip() or None,
             "section_path": cell(r, "section_path"),
             "title": " ".join(cell(r, "title").split()),
+            "description": unwrap(cell(r, "description")),
             "preconditions": pre,
             "steps": text_to_steps(cell(r, "steps")),
             "expected_result": unwrap(cell(r, "expected_result")),
             "tags": [t for t in re.split(r"[,;]", cell(r, "tags"))],
             "automation_key": cell(r, "automation_key"),
+            "owner": " ".join(cell(r, "owner").split()) or None,
+            "sprint": " ".join(cell(r, "sprint").split()) or None,
+            "updated_by": " ".join(cell(r, "updated_by").split()) or None,
             "custom_fields": [
                 {"name": name, "value": unwrap(r[i]) if i < len(r) else ""}
                 for i, name, selected in extra if selected and i < len(r) and r[i].strip()
             ],
         }
+        if "roles" in column:
+            row["roles"] = split_list(cell(r, "roles"))
         for fld, mapper in (("priority", map_priority), ("type", map_type),
-                            ("automation_status", map_automation)):
+                            ("automation_status", map_automation), ("state", map_state),
+                            ("automation_complexity", map_complexity),
+                            ("automation_progress", map_progress), ("created_at", parse_datetime),
+                            ("updated_at", parse_datetime)):
             if fld in column:
                 value, warning = mapper(cell(r, fld))
-                row[fld] = value.value if value else None
+                row[fld] = value.value if isinstance(value, StrEnum) else value
                 if warning:
                     warnings.append(f"row {n}: {warning}")
         rows.append(row)

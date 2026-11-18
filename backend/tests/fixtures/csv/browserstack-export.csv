@@ -12,7 +12,7 @@ TC-101,Verify order is cancelled and a note is sent to the warehouse if reason =
 ",,"1.  Order has Cancelled status and reason: Other, with
     filled in details
 2.  Warehouse received a note with correct reason
-",,"order_cancellation,warehouse,regression",Not Applicable,Can Not Be Automated,,Sprint 12,,06/22/2026 09:26:20,,06/22/2026 11:27:39,jdoe,Shop [web],https://example.com/test-cases/101,
+",,"order_cancellation,warehouse,regression",Not Applicable,Can Not Be Automated,Admin,Sprint 12,,06/22/2026 09:26:20,,06/22/2026 11:27:39,jdoe,Shop [web],https://example.com/test-cases/101,
 TC-102,Verify discount and coupon are cleared after order is cancelled and restored,5001,Orders>Active>Cancellation,Pending Review,John Roe,Medium,Undefined,Not Automated,Coupons must not survive a restore.,"1.  User is signed in as admin.
 2.  Order has a coupon applied.
 ",Steps,Test Case Steps,"1.  Open the order.
@@ -21,9 +21,9 @@ TC-102,Verify discount and coupon are cleared after order is cancelled and resto
 4.  Check the totals.
 ",,"1.  Coupon field is empty.
 2.  Discount is not applied.
-",,"coupons,order_restore",Medium,In Progress,,Sprint 13,,06/11/2026 14:43:35,John Roe,07/15/2026 08:44:29,jdoe,Shop [web],https://example.com/test-cases/102,
+",,"coupons,order_restore",Medium,In Progress,Admin; Warehouse manager,Sprint 13,,06/11/2026 14:43:35,John Roe,07/15/2026 08:44:29,jdoe,Shop [web],https://example.com/test-cases/102,
 TC-103,"Verify bulk cancellation with ""Out of stock"" reason",5002,Orders>Bulk,Active,Jane Doe,Highest,Smoke,Automated,,,Steps,Test Case Steps,"1.  Select two orders
 2.  Click Bulk cancel
 ",,"1.  Both orders are cancelled
-",,"bulk,smoke",Medium,Automated,,Sprint 12,,,,,,Shop [web],,
+",,"bulk,smoke",Medium,Automated,Customer,Sprint 12,,,,,,Shop [web],,
 TC-104,Check something odd,5002,Orders>Bulk,Active,Jane Doe,Whatever,Usability,Someday,,,Steps,Test Case Steps,Just one unnumbered step,,,,,,,,,,,,,,Shop [web],,

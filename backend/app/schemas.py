@@ -9,7 +9,10 @@ from typing import Annotated
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from app.models import (
+    AutomationComplexity,
+    AutomationProgress,
     AutomationStatus,
+    CaseState,
     CaseType,
     InvitePurpose,
     Priority,
@@ -103,23 +106,44 @@ class InviteAccept(BaseModel):
     password: str = Field(max_length=256)
 
 
+def _clean_roles(v: list[str]) -> list[str]:
+    """Trim and dedupe case-insensitively, keeping the first spelling."""
+    seen: dict[str, str] = {}
+    for r in v:
+        r = " ".join(r.split())[:100]
+        if r:
+            seen.setdefault(r.lower(), r)
+    return list(seen.values())
+
+
+Roles = Annotated[list[str], AfterValidator(_clean_roles)]
+
+
 # --- Projects ------------------------------------------------------------------------
 
 
 class ProjectIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str = ""
+    roles: Roles = Field(default=[], max_length=500)
 
 
 class ProjectPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = None
+    roles: Roles | None = Field(default=None, max_length=500)
+
+
+class RoleRename(BaseModel):
+    old: str = Field(min_length=1, max_length=100)
+    new: str = Field(min_length=1, max_length=100)
 
 
 class ProjectOut(ORM):
     id: int
     name: str
     description: str
+    roles: list[str]
     created_at: datetime
     updated_at: datetime
     suite_count: int = 0
@@ -201,7 +225,16 @@ def _clean_key(v: str | None) -> str | None:
     return v or None
 
 
+def _clean_text(v: str | None) -> str | None:
+    if v is None:
+        return None
+    v = " ".join(v.split())
+    return v or None
+
+
 Tags = Annotated[list[str], AfterValidator(_clean_tags)]
+Owner = Annotated[str | None, Field(max_length=200), AfterValidator(_clean_text)]
+Sprint = Annotated[str | None, Field(max_length=100), AfterValidator(_clean_text)]
 
 
 class CustomField(BaseModel):
@@ -231,6 +264,7 @@ ExternalId = Annotated[str | None, Field(max_length=200), AfterValidator(_clean_
 
 class CaseFields(BaseModel):
     title: str = Field(min_length=1, max_length=500)
+    description: str = ""
     preconditions: str = ""
     steps: list[Step] = []
     expected_result: str = ""
@@ -240,7 +274,18 @@ class CaseFields(BaseModel):
     automation_status: AutomationStatus = AutomationStatus.manual
     automation_key: AutomationKey = None
     external_id: ExternalId = None
+    state: CaseState = CaseState.active
+    owner: Owner = None
+    automation_complexity: AutomationComplexity | None = None
+    automation_progress: AutomationProgress | None = None
+    sprint: Sprint = None
+    roles: Roles = []
     custom_fields: CustomFields = []
+
+
+# Nullable fields a PATCH may clear by sending null.
+CLEARABLE_FIELDS = ("automation_key", "external_id", "owner", "automation_complexity",
+                    "automation_progress", "sprint")
 
 
 class CaseIn(CaseFields):
@@ -250,6 +295,7 @@ class CaseIn(CaseFields):
 class CasePatch(BaseModel):
     section_id: int | None = None
     title: str | None = Field(default=None, min_length=1, max_length=500)
+    description: str | None = None
     preconditions: str | None = None
     steps: list[Step] | None = None
     expected_result: str | None = None
@@ -259,6 +305,12 @@ class CasePatch(BaseModel):
     automation_status: AutomationStatus | None = None
     automation_key: AutomationKey = None
     external_id: ExternalId = None
+    state: CaseState | None = None
+    owner: Owner = None
+    automation_complexity: AutomationComplexity | None = None
+    automation_progress: AutomationProgress | None = None
+    sprint: Sprint = None
+    roles: Roles | None = None
     custom_fields: CustomFields | None = None
 
 
@@ -269,6 +321,7 @@ class CaseOut(ORM):
     suite_id: int
     section_id: int
     title: str
+    description: str
     preconditions: str
     steps: list[Step]
     expected_result: str
@@ -278,15 +331,48 @@ class CaseOut(ORM):
     automation_status: AutomationStatus
     automation_key: str | None
     external_id: str | None
+    state: CaseState
+    owner: str | None
+    automation_complexity: AutomationComplexity | None
+    automation_progress: AutomationProgress | None
+    sprint: str | None
+    roles: list[str]
     custom_fields: list[CustomField]
     position: int
     created_at: datetime
     updated_at: datetime
+    updated_by: str | None
 
 
 class CaseList(BaseModel):
     items: list[CaseOut]
     total: int
+
+
+class CaseBulkSet(BaseModel):
+    """Fields to overwrite on every case. Omitted = unchanged; null clears optional fields."""
+
+    priority: Priority | None = None
+    type: CaseType | None = None
+    automation_status: AutomationStatus | None = None
+    state: CaseState | None = None
+    owner: Owner = None
+    sprint: Sprint = None
+    automation_complexity: AutomationComplexity | None = None
+    automation_progress: AutomationProgress | None = None
+
+
+class CaseBulkUpdate(BaseModel):
+    case_ids: list[int] = Field(min_length=1, max_length=5000)
+    set: CaseBulkSet = CaseBulkSet()
+    add_tags: Tags = []
+    remove_tags: Tags = []
+    add_roles: Roles = []
+    remove_roles: Roles = []
+
+
+class BulkResult(BaseModel):
+    updated: int
 
 
 class CaseMoveIn(BaseModel):
@@ -307,6 +393,12 @@ class CaseFilter(BaseModel):
     priority: list[Priority] = []
     type: list[CaseType] = []
     automation_status: list[AutomationStatus] = []
+    state: list[CaseState] = []
+    automation_complexity: list[AutomationComplexity] = []
+    automation_progress: list[AutomationProgress] = []
+    owner: list[str] = []  # any of
+    sprint: list[str] = []  # any of
+    roles: list[str] = []  # cases with any of these roles
     # Custom field name -> accepted values (any of them); several names must all match.
     fields: dict[str, list[str]] = {}
 
@@ -314,6 +406,14 @@ class CaseFilter(BaseModel):
 class FieldValues(BaseModel):
     name: str
     values: list[str]
+
+
+class CaseValues(BaseModel):
+    """Values in use in a project, for autocomplete and filters."""
+
+    owners: list[str]  # case owners plus active users' names
+    sprints: list[str]
+    roles: list[str]
 
 
 # --- Import / export -----------------------------------------------------------------

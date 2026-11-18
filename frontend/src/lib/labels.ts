@@ -1,4 +1,12 @@
-import type { AutomationStatus, CaseType, Priority, ResultStatus } from "./types";
+import type {
+  AutomationComplexity,
+  AutomationProgress,
+  AutomationStatus,
+  CaseState,
+  CaseType,
+  Priority,
+  ResultStatus,
+} from "./types";
 
 export const priorityLabel: Record<Priority, string> = {
   critical: "Critical",
@@ -28,6 +36,36 @@ export const automationLabel: Record<AutomationStatus, string> = {
   manual: "Manual",
   automated: "Automated",
   to_be_automated: "To be automated",
+};
+
+export const stateLabel: Record<CaseState, string> = {
+  draft: "Draft",
+  active: "Active",
+  pending_review: "Pending review",
+  outdated: "Outdated",
+  rejected: "Rejected",
+};
+
+export const stateClass: Record<CaseState, string> = {
+  draft: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  active: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+  pending_review: "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  outdated: "bg-zinc-100 text-zinc-500 line-through dark:bg-zinc-800 dark:text-zinc-400",
+  rejected: "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300",
+};
+
+export const complexityLabel: Record<AutomationComplexity, string> = {
+  not_applicable: "Not applicable",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+};
+
+export const progressLabel: Record<AutomationProgress, string> = {
+  not_automated: "Not automated",
+  in_progress: "In progress",
+  automated: "Automated",
+  cannot_be_automated: "Can't be automated",
 };
 
 export const statusLabel: Record<ResultStatus, string> = {

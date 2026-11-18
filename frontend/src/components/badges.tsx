@@ -1,10 +1,26 @@
 import { Bot, Hand, Hourglass } from "lucide-react";
 
-import { automationLabel, priorityClass, priorityLabel, statusLabel, statusPill } from "@/lib/labels";
-import type { AutomationStatus, Priority, ResultStatus } from "@/lib/types";
+import {
+  automationLabel,
+  priorityClass,
+  priorityLabel,
+  stateClass,
+  stateLabel,
+  statusLabel,
+  statusPill,
+} from "@/lib/labels";
+import type { AutomationStatus, CaseState, Priority, ResultStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+
+export function StateBadge({ state, className }: { state: CaseState; className?: string }) {
+  return (
+    <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium", stateClass[state], className)}>
+      {stateLabel[state]}
+    </span>
+  );
+}
 
 export function PriorityBadge({ priority, className }: { priority: Priority; className?: string }) {
   return (

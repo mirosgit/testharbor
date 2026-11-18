@@ -27,6 +27,7 @@ import type { SectionNode } from "@/lib/tree";
 import type { ImportResult } from "@/lib/types";
 
 const NEW = "__new__";
+const ROOT = "__root__"; // folders from the file become top-level sections
 
 const baseName = (name: string) => name.replace(/\.(csv|json)$/i, "").trim();
 
@@ -36,7 +37,6 @@ export function ImportDialog({
   suiteId,
   sections,
   paths,
-  defaultSectionId,
   onImported,
 }: {
   open: boolean;
@@ -44,12 +44,10 @@ export function ImportDialog({
   suiteId: number;
   sections: SectionNode[];
   paths: Map<number, string>;
-  /** Pre-select this section (e.g. the one selected in the tree). */
-  defaultSectionId?: number | null;
   onImported: (result: ImportResult) => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const [target, setTarget] = useState<string>(defaultSectionId ? String(defaultSectionId) : NEW);
+  const [target, setTarget] = useState<string>(ROOT);
   const [newName, setNewName] = useState("");
   const [keepPaths, setKeepPaths] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -60,8 +58,14 @@ export function ImportDialog({
 
   const targetFor = (dry: boolean) => {
     const name = (newName || (file ? baseName(file.name) : "")).trim();
-    const base = target === NEW ? { new_section: name } : { section_id: Number(target) };
-    return { ...base, keep_paths: keepPaths, dry_run: dry, columns: columns ? [...columns] : undefined };
+    const base =
+      target === ROOT ? {} : target === NEW ? { new_section: name } : { section_id: Number(target) };
+    return {
+      ...base,
+      keep_paths: target === ROOT || keepPaths,
+      dry_run: dry,
+      columns: columns ? [...columns] : undefined,
+    };
   };
 
   // Dry run whenever the file or target changes: shows counts and the extra columns.
@@ -99,7 +103,7 @@ export function ImportDialog({
       setNewName("");
       setKeepPaths(true);
     } else {
-      setTarget(defaultSectionId ? String(defaultSectionId) : NEW);
+      setTarget(ROOT);
     }
     onOpenChange(o);
   };
@@ -168,6 +172,7 @@ export function ImportDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={ROOT}>Top level (folders from the file)</SelectItem>
                   <SelectItem value={NEW}>New section…</SelectItem>
                   {sections.map((s) => (
                     <SelectItem key={s.id} value={String(s.id)}>
@@ -186,10 +191,19 @@ export function ImportDialog({
               )}
               {target === NEW && (
                 <p className="text-xs text-muted-foreground">
-                  A top-level section; an existing one with the same name is reused.
+                  A top-level section; an existing one with the same name is reused. Folders from the file go inside
+                  it.
+                </p>
+              )}
+              {target === ROOT && (
+                <p className="text-xs text-muted-foreground">
+                  <code>Billing&gt;Invoices</code> in the file becomes <code>Billing › Invoices</code> at the top of
+                  the suite; existing sections with the same path are reused. Cases without a folder go to
+                  “Imported”.
                 </p>
               )}
             </div>
+            {target !== ROOT && (
             <label className="flex items-start gap-2 text-sm">
               <Checkbox checked={keepPaths} onCheckedChange={(v) => setKeepPaths(v === true)} className="mt-0.5" />
               <span>
@@ -200,6 +214,7 @@ export function ImportDialog({
                 </span>
               </span>
             </label>
+            )}
             {preview && (
               <div className="grid gap-2 rounded-md border bg-muted/30 p-3 text-sm" data-testid="import-preview">
                 <p>

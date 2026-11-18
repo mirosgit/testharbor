@@ -5,6 +5,7 @@ import { Anchor, ChevronsUpDown, KeyRound, LogOut, User, Users } from "lucide-re
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 
+import { ThemeToggle } from "@/components/theme-toggle";
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/me";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,7 @@ export function AppHeader() {
     ? [
         { href: `/projects/${projectId}/cases`, label: "Test cases" },
         { href: `/projects/${projectId}/runs`, label: "Test runs" },
+        { href: `/projects/${projectId}/settings`, label: "Settings" },
       ]
     : [];
 
@@ -78,6 +80,7 @@ export function AppHeader() {
         </>
       )}
       <div className="ml-auto flex items-center gap-1">
+        <ThemeToggle />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className="gap-2" aria-label="Account menu">

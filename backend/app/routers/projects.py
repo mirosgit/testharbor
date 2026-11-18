@@ -1,13 +1,13 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_admin
 from app.db import get_session
 from app.models import Project, Suite, TestCase, TestRun
-from app.schemas import ProjectIn, ProjectOut, ProjectPatch
+from app.schemas import ProjectIn, ProjectOut, ProjectPatch, RoleRename, _clean_roles
 from app.services import get_or_404
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -66,6 +66,31 @@ async def update_project(project_id: int, body: ProjectPatch, session: Session) 
     project = await get_or_404(session, Project, project_id)
     for k, v in body.model_dump(exclude_unset=True, exclude_none=True).items():
         setattr(project, k, v)
+    await session.commit()
+    return (await _with_counts(session, project_id))[0]
+
+
+@router.post("/{project_id}/roles/rename", response_model=ProjectOut)
+async def rename_role(project_id: int, body: RoleRename, session: Session) -> ProjectOut:
+    """Rename a role in the project's list and on every case that has it."""
+    project = await get_or_404(session, Project, project_id)
+    old, new = body.old.strip(), " ".join(body.new.split())
+    if not new:
+        raise HTTPException(422, "New name is empty")
+    same = old.lower()
+    if same not in {r.lower() for r in project.roles}:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Role {old!r} is not in the project")
+
+    def swap(roles: list[str]) -> list[str]:  # rename in place, merge if `new` already exists
+        return _clean_roles([new if r.lower() == same else r for r in roles])
+
+    project.roles = swap(project.roles)
+    cases = await session.scalars(
+        select(TestCase).where(TestCase.project_id == project_id, func.cardinality(TestCase.roles) > 0)
+    )
+    for case in cases:
+        if any(r.lower() == same for r in case.roles):
+            case.roles = swap(case.roles)
     await session.commit()
     return (await _with_counts(session, project_id))[0]
 

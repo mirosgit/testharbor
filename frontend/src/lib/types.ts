@@ -8,6 +8,9 @@ export type CaseType =
   | "security"
   | "other";
 export type AutomationStatus = "manual" | "automated" | "to_be_automated";
+export type CaseState = "draft" | "active" | "pending_review" | "outdated" | "rejected";
+export type AutomationComplexity = "not_applicable" | "low" | "medium" | "high";
+export type AutomationProgress = "not_automated" | "in_progress" | "automated" | "cannot_be_automated";
 export type ResultStatus = "passed" | "failed" | "blocked" | "skipped" | "retest" | "untested";
 export type RunSource = "manual" | "ci";
 
@@ -22,6 +25,14 @@ export const CASE_TYPES: CaseType[] = [
   "other",
 ];
 export const AUTOMATION_STATUSES: AutomationStatus[] = ["manual", "automated", "to_be_automated"];
+export const CASE_STATES: CaseState[] = ["draft", "active", "pending_review", "outdated", "rejected"];
+export const AUTOMATION_COMPLEXITIES: AutomationComplexity[] = ["not_applicable", "low", "medium", "high"];
+export const AUTOMATION_PROGRESSES: AutomationProgress[] = [
+  "not_automated",
+  "in_progress",
+  "automated",
+  "cannot_be_automated",
+];
 export const RESULT_STATUSES: ResultStatus[] = [
   "passed",
   "failed",
@@ -35,6 +46,8 @@ export interface Project {
   id: number;
   name: string;
   description: string;
+  /** Roles to pick from when marking which user roles a case applies to. */
+  roles: string[];
   created_at: string;
   updated_at: string;
   suite_count: number;
@@ -70,6 +83,32 @@ export interface FieldValues {
   values: string[];
 }
 
+/** Fields to overwrite on many cases at once; omitted = unchanged, null = clear. */
+export interface CaseBulkUpdate {
+  case_ids: number[];
+  set?: Partial<{
+    priority: Priority;
+    type: CaseType;
+    automation_status: AutomationStatus;
+    state: CaseState;
+    owner: string | null;
+    sprint: string | null;
+    automation_complexity: AutomationComplexity | null;
+    automation_progress: AutomationProgress | null;
+  }>;
+  add_tags?: string[];
+  remove_tags?: string[];
+  add_roles?: string[];
+  remove_roles?: string[];
+}
+
+/** Owners, sprints and roles in use in a project (owners include active users). */
+export interface CaseValues {
+  owners: string[];
+  sprints: string[];
+  roles: string[];
+}
+
 export interface Step {
   action: string;
   expected: string;
@@ -82,6 +121,7 @@ export interface TestCase {
   suite_id: number;
   section_id: number;
   title: string;
+  description: string;
   preconditions: string;
   steps: Step[];
   expected_result: string;
@@ -91,21 +131,42 @@ export interface TestCase {
   automation_status: AutomationStatus;
   automation_key: string | null;
   external_id: string | null;
+  state: CaseState;
+  owner: string | null;
+  automation_complexity: AutomationComplexity | null;
+  automation_progress: AutomationProgress | null;
+  sprint: string | null;
+  roles: string[];
   custom_fields: CustomField[];
   position: number;
   created_at: string;
   updated_at: string;
+  updated_by: string | null;
 }
 
 export type CaseInput = Omit<
   TestCase,
-  "id" | "key" | "project_id" | "suite_id" | "position" | "created_at" | "updated_at" | "external_id"
+  "id" | "key" | "project_id" | "suite_id" | "position" | "created_at" | "updated_at" | "updated_by" | "external_id"
 >;
 
 export interface CaseList {
   items: TestCase[];
   total: number;
 }
+
+export type CaseSort =
+  | "manual"
+  | "id"
+  | "title"
+  | "priority"
+  | "type"
+  | "state"
+  | "automation_status"
+  | "owner"
+  | "sprint"
+  | "created_at"
+  | "updated_at";
+export type RunSort = "created_at" | "name" | "closed_at";
 
 export interface CaseFilter {
   suite_id?: number;
@@ -115,6 +176,12 @@ export interface CaseFilter {
   priority?: Priority[];
   type?: CaseType[];
   automation_status?: AutomationStatus[];
+  state?: CaseState[];
+  automation_complexity?: AutomationComplexity[];
+  automation_progress?: AutomationProgress[];
+  owner?: string[];
+  sprint?: string[];
+  roles?: string[];
   /** Custom field name -> accepted values. */
   fields?: Record<string, string[]>;
 }

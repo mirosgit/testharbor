@@ -14,13 +14,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { automationLabel, priorityLabel, typeLabel } from "@/lib/labels";
+import { automationLabel, complexityLabel, priorityLabel, progressLabel, stateLabel, typeLabel } from "@/lib/labels";
 import {
+  AUTOMATION_COMPLEXITIES,
+  AUTOMATION_PROGRESSES,
   AUTOMATION_STATUSES,
+  CASE_STATES,
   CASE_TYPES,
   PRIORITIES,
+  type AutomationComplexity,
+  type AutomationProgress,
   type AutomationStatus,
+  type CaseFilter,
+  type CaseState,
   type CaseType,
+  type CaseValues,
   type FieldValues,
   type Priority,
 } from "@/lib/types";
@@ -32,28 +40,71 @@ export interface Filters {
   priority: Priority[];
   type: CaseType[];
   automation_status: AutomationStatus[];
+  state: CaseState[];
+  automation_complexity: AutomationComplexity[];
+  automation_progress: AutomationProgress[];
+  owner: string[];
+  sprint: string[];
+  roles: string[];
   /** Custom field name -> selected values. */
   fields: Record<string, string[]>;
 }
 
-export const emptyFilters: Filters = { q: "", tags: [], priority: [], type: [], automation_status: [], fields: {} };
+export const emptyFilters: Filters = {
+  q: "",
+  tags: [],
+  priority: [],
+  type: [],
+  automation_status: [],
+  state: [],
+  automation_complexity: [],
+  automation_progress: [],
+  owner: [],
+  sprint: [],
+  roles: [],
+  fields: {},
+};
 
-const fieldFilterCount = (f: Filters) => Object.values(f.fields).reduce((n, v) => n + v.length, 0);
+/** Built-in fields filtered from the "Fields" popover (alongside custom fields). */
+const BUILTIN = ["state", "owner", "sprint", "roles", "automation_progress", "automation_complexity"] as const;
+type BuiltinKey = (typeof BUILTIN)[number];
+const CUSTOM = "custom:";
+
+const fieldFilterCount = (f: Filters) =>
+  Object.values(f.fields).reduce((n, v) => n + v.length, 0) + BUILTIN.reduce((n, k) => n + f[k].length, 0);
 
 export const isFiltered = (f: Filters) =>
   !!f.q.trim() ||
   f.tags.length + f.priority.length + f.type.length + f.automation_status.length + fieldFilterCount(f) > 0;
+
+/** The API filter for the current filter bar state. */
+export const toCaseFilter = (f: Filters): CaseFilter => ({
+  q: f.q || undefined,
+  tags: f.tags,
+  priority: f.priority,
+  type: f.type,
+  automation_status: f.automation_status,
+  state: f.state,
+  automation_complexity: f.automation_complexity,
+  automation_progress: f.automation_progress,
+  owner: f.owner,
+  sprint: f.sprint,
+  roles: f.roles,
+  fields: f.fields,
+});
 
 export function FilterBar({
   value,
   onChange,
   tags,
   fields = [],
+  values,
 }: {
   value: Filters;
   onChange: (f: Filters) => void;
   tags: string[];
   fields?: FieldValues[];
+  values?: CaseValues;
 }) {
   // Debounce the search box; other filters apply immediately.
   const [q, setQ] = useState(value.q);
@@ -101,9 +152,20 @@ export function FilterBar({
         onChange={(t) => onChange({ ...value, tags: t })}
         emptyText="No tags in this project"
       />
-      {fields.length > 0 && (
-        <FieldsFilter options={fields} value={value.fields} onChange={(f) => onChange({ ...value, fields: f })} />
-      )}
+      <FieldsFilter
+        options={fieldOptions(fields, values)}
+        value={{
+          ...Object.fromEntries(BUILTIN.map((k) => [k, value[k] as string[]])),
+          ...Object.fromEntries(Object.entries(value.fields).map(([k, v]) => [CUSTOM + k, v])),
+        }}
+        onChange={(sel) => {
+          const next: Filters = { ...value, fields: {} };
+          for (const k of BUILTIN) (next[k] as string[]) = sel[k] ?? [];
+          for (const [k, v] of Object.entries(sel))
+            if (k.startsWith(CUSTOM) && v.length) next.fields[k.slice(CUSTOM.length)] = v;
+          onChange(next);
+        }}
+      />
       {isFiltered(value) && (
         <Button variant="ghost" size="sm" onClick={() => onChange(emptyFilters)}>
           <X /> Clear
@@ -164,28 +226,60 @@ function MultiSelect<T extends string>({
   );
 }
 
+interface FieldOption {
+  key: string;
+  label: string;
+  values: [string, string][]; // [value, label]
+}
+
+const builtinLabel: Record<BuiltinKey, string> = {
+  state: "State",
+  owner: "Owner",
+  sprint: "Sprint",
+  roles: "Roles",
+  automation_progress: "Automation progress",
+  automation_complexity: "Automation complexity",
+};
+
+function fieldOptions(custom: FieldValues[], values?: CaseValues): FieldOption[] {
+  const same = (xs: string[]): [string, string][] => xs.map((x) => [x, x]);
+  const builtin: Record<BuiltinKey, [string, string][]> = {
+    state: CASE_STATES.map((s) => [s, stateLabel[s]]),
+    owner: same(values?.owners ?? []),
+    sprint: same(values?.sprints ?? []),
+    roles: same(values?.roles ?? []),
+    automation_progress: AUTOMATION_PROGRESSES.map((a) => [a, progressLabel[a]]),
+    automation_complexity: AUTOMATION_COMPLEXITIES.map((a) => [a, complexityLabel[a]]),
+  };
+  return [
+    ...BUILTIN.map((k) => ({ key: k, label: builtinLabel[k], values: builtin[k] })),
+    ...custom.map((f) => ({ key: CUSTOM + f.name, label: f.name, values: same(f.values) })),
+  ];
+}
+
 function FieldsFilter({
   options,
   value,
   onChange,
 }: {
-  options: FieldValues[];
+  options: FieldOption[];
   value: Record<string, string[]>;
   onChange: (v: Record<string, string[]>) => void;
 }) {
   const active = Object.values(value).reduce((n, v) => n + v.length, 0);
-  const [field, setField] = useState<string>(() => Object.keys(value)[0] ?? options[0]?.name ?? "");
+  const [field, setField] = useState<string>(
+    () => Object.keys(value).find((k) => value[k].length) ?? options[0]?.key ?? "",
+  );
   const [needle, setNeedle] = useState("");
-  const current = options.find((o) => o.name === field);
+  const current = options.find((o) => o.key === field);
   const selected = value[field] ?? [];
   const toggle = (v: string) => {
     const next = selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v];
-    const copy = { ...value };
-    if (next.length) copy[field] = next;
-    else delete copy[field];
-    onChange(copy);
+    onChange({ ...value, [field]: next });
   };
-  const shown = (current?.values ?? []).filter((v) => v.toLowerCase().includes(needle.trim().toLowerCase()));
+  const shown = (current?.values ?? []).filter(([, label]) =>
+    label.toLowerCase().includes(needle.trim().toLowerCase()),
+  );
 
   return (
     <Popover>
@@ -203,9 +297,9 @@ function FieldsFilter({
           </SelectTrigger>
           <SelectContent>
             {options.map((o) => (
-              <SelectItem key={o.name} value={o.name}>
-                {o.name}
-                {value[o.name]?.length ? ` (${value[o.name].length})` : ""}
+              <SelectItem key={o.key} value={o.key}>
+                {o.label}
+                {value[o.key]?.length ? ` (${value[o.key].length})` : ""}
               </SelectItem>
             ))}
           </SelectContent>
@@ -215,10 +309,10 @@ function FieldsFilter({
         )}
         <div className="max-h-60 overflow-y-auto">
           {shown.length === 0 && <p className="p-2 text-sm text-muted-foreground">No values</p>}
-          {shown.map((v) => (
+          {shown.map(([v, label]) => (
             <label key={v} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
               <Checkbox checked={selected.includes(v)} onCheckedChange={() => toggle(v)} />
-              <span className="min-w-0 truncate">{v}</span>
+              <span className="min-w-0 truncate">{label}</span>
             </label>
           ))}
         </div>

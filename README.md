@@ -15,10 +15,17 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
 - **Test cases in a tree.** Suites contain nested sections, and cases are listed on the right,
   similar to TestRail. You can drag and drop cases, including several at once, between sections.
 - **Case editor.** It has a steps table (action and expected result), preconditions, priority,
-  type, tags and automation status. Text fields support Markdown. Any number of **custom fields**
-  (Owner, Sprint, State…) can be added, and you can filter by them.
-- **Search and filters.** Search by title or `C123`, and filter by tags, priority, type and
-  automation status.
+  type, tags and automation status, plus state (Draft, Active, Pending review, Outdated,
+  Rejected), owner, sprint, applicable roles, automation progress and automation complexity.
+  Created / last updated dates and who last changed the case are tracked. Text fields support
+  Markdown. Any number of **custom fields** can be added on top, and you can filter by them.
+- **Search and filters.** Search by title or `C123`, and filter by tags, priority, type,
+  automation status, state, owner, sprint, roles and custom fields.
+- **Project roles.** Each project keeps a list of user roles (Settings → Roles); cases pick from
+  it. Renaming a role renames it in every case.
+- **Bulk edit.** Select cases and change state, priority, type, automation fields, owner or sprint,
+  or add/remove tags and roles on all of them at once.
+- **Light and dark theme**, or follow the system setting.
 - **Manual test runs.** Create a run from a whole suite, from chosen sections, from the current
   filter, or from selected cases. The run page shows a progress bar and per-status counts. Each
   case can have several results; the most recent one is its current status. "Save & next untested"
@@ -29,8 +36,10 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
   - Folders become sections. You choose the target section, or a new one.
   - Their IDs (`TC-770`) are kept, so re-importing updates cases instead of duplicating them.
   - Columns or values that can't be mapped are listed after the import, not silently dropped.
-  - Before importing, a preview shows what will be created or updated. Extra columns, such as
-    Owner, State or Sprint, can be kept as custom fields.
+  - State, Owner, Sprint No., Applicable Roles, Automation Complexity, "Automation Status
+    (custom)", Created At, Last Updated At and Last Updated By go into the matching built-in fields.
+  - Before importing, a preview shows what will be created or updated. Other extra columns can
+    be kept as custom fields.
 - **Automation**
   - REST API with OpenAPI docs at `/docs`, plus API tokens.
   - `POST /api/projects/{id}/runs/import-junit` accepts JUnit XML from pytest, Playwright, Jest,

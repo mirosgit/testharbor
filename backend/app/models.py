@@ -70,6 +70,31 @@ class AutomationStatus(enum.StrEnum):
     to_be_automated = "to_be_automated"
 
 
+class CaseState(enum.StrEnum):
+    draft = "draft"
+    active = "active"
+    pending_review = "pending_review"
+    outdated = "outdated"
+    rejected = "rejected"
+
+
+class AutomationComplexity(enum.StrEnum):
+    not_applicable = "not_applicable"
+    low = "low"
+    medium = "medium"
+    high = "high"
+
+
+class AutomationProgress(enum.StrEnum):
+    """Finer-grained automation tracking than AutomationStatus (BrowserStack's custom
+    "Automation Status" column is imported here)."""
+
+    not_automated = "not_automated"
+    in_progress = "in_progress"
+    automated = "automated"
+    cannot_be_automated = "cannot_be_automated"
+
+
 class RunSource(enum.StrEnum):
     manual = "manual"
     ci = "ci"
@@ -125,6 +150,10 @@ class Project(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # Roles offered when tagging cases with the user roles they apply to, in display order.
+    roles: Mapped[list[str]] = mapped_column(
+        ARRAY(String(100)), default=list, server_default=text("'{}'::varchar[]")
+    )
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _updated()
 
@@ -170,6 +199,7 @@ class TestCase(Base):
         Index("ix_test_cases_section_position", "section_id", "position"),
         Index("ix_test_cases_suite_external_id", "suite_id", "external_id"),
         Index("ix_test_cases_custom_fields", "custom_fields", postgresql_using="gin"),
+        Index("ix_test_cases_roles", "roles", postgresql_using="gin"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -178,6 +208,7 @@ class TestCase(Base):
     suite_id: Mapped[int] = mapped_column(ForeignKey("suites.id", ondelete="CASCADE"), index=True)
     section_id: Mapped[int] = mapped_column(ForeignKey("sections.id", ondelete="CASCADE"))
     title: Mapped[str] = mapped_column(String(500))
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
     preconditions: Mapped[str] = mapped_column(Text, default="", server_default="")
     # [{"action": str, "expected": str}, ...]
     steps: Mapped[list[dict[str, Any]]] = mapped_column(
@@ -202,6 +233,23 @@ class TestCase(Base):
     # Id in the tool the case was imported from (e.g. "TC-770" from BrowserStack); re-imports
     # update the case instead of duplicating it.
     external_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    state: Mapped[CaseState] = mapped_column(
+        _enum(CaseState, "case_state"), default=CaseState.active, server_default=CaseState.active.value
+    )
+    owner: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    automation_complexity: Mapped[AutomationComplexity | None] = mapped_column(
+        _enum(AutomationComplexity, "automation_complexity"), nullable=True
+    )
+    automation_progress: Mapped[AutomationProgress | None] = mapped_column(
+        _enum(AutomationProgress, "automation_progress"), nullable=True
+    )
+    sprint: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # User roles the case applies to ("Admin", "Editor"...); case is kept as entered.
+    roles: Mapped[list[str]] = mapped_column(
+        ARRAY(String(100)), default=list, server_default=text("'{}'::varchar[]")
+    )
+    # Display name of whoever last changed the case (or the value from an imported file).
+    updated_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # Free-form extra fields, in display order: [{"name": "Sprint", "value": "Sprint 125"}, ...]
     custom_fields: Mapped[list[dict[str, str]]] = mapped_column(
         JSONB, default=list, server_default=text("'[]'::jsonb")

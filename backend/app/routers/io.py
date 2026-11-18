@@ -1,11 +1,13 @@
 """Import / export of a suite's cases as CSV or JSON.
 
-Export CSV columns: id, external_id, section_path, title, preconditions, steps, expected_result,
-priority, type, tags, automation_status, automation_key.
+Export CSV columns: id, external_id, section_path, title, description, preconditions, steps, expected_result,
+priority, type, tags, automation_status, automation_key, state, owner, automation_complexity,
+automation_progress, sprint, roles, created_at, updated_at, updated_by, then one column per
+custom field.
 
 - section_path: "Parent > Child". Missing sections are created on import.
 - steps: one cell, numbered lines "1. action => expected".
-- tags: comma-separated.
+- tags, roles: comma-separated.
 
 Import also understands BrowserStack Test Management and TestRail CSV exports (see
 app/case_import.py): `Folder Path` / `Section Hierarchy` become sections, their own ids
@@ -28,18 +30,21 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.case_import import parse_csv, steps_to_text, text_to_steps  # noqa: F401 (re-exported)
+from app.auth import CurrentPrincipal
+from app.case_import import parse_csv, parse_datetime, steps_to_text, text_to_steps  # noqa: F401
 from app.db import get_session
 from app.models import Section, Suite, TestCase
 from app.schemas import CaseFields, ExtraColumn, ImportResult
-from app.services import CASE_REF, get_or_404, section_paths, suite_sections, tree_order
+from app.services import CASE_REF, get_or_404, remember_roles, section_paths, suite_sections, tree_order
 
 router = APIRouter(prefix="/api", tags=["import/export"])
 Session = Annotated[AsyncSession, Depends(get_session)]
 
 CSV_COLUMNS = [
-    "id", "external_id", "section_path", "title", "preconditions", "steps", "expected_result",
-    "priority", "type", "tags", "automation_status", "automation_key",
+    "id", "external_id", "section_path", "title", "description", "preconditions", "steps", "expected_result",
+    "priority", "type", "tags", "automation_status", "automation_key", "state", "owner",
+    "automation_complexity", "automation_progress", "sprint", "roles", "created_at", "updated_at",
+    "updated_by",
 ]
 _PATH_SEP = re.compile(r"\s*[>›]\s*")
 MAX_IMPORT_BYTES = 20 * 1024 * 1024
@@ -61,6 +66,7 @@ async def _export_rows(session: AsyncSession, suite: Suite) -> list[dict[str, An
             "external_id": c.external_id,
             "section_path": paths[c.section_id],
             "title": c.title,
+            "description": c.description,
             "preconditions": c.preconditions,
             "steps": c.steps,
             "expected_result": c.expected_result,
@@ -69,6 +75,15 @@ async def _export_rows(session: AsyncSession, suite: Suite) -> list[dict[str, An
             "tags": c.tags,
             "automation_status": c.automation_status.value,
             "automation_key": c.automation_key,
+            "state": c.state.value,
+            "owner": c.owner,
+            "automation_complexity": c.automation_complexity.value if c.automation_complexity else None,
+            "automation_progress": c.automation_progress.value if c.automation_progress else None,
+            "sprint": c.sprint,
+            "roles": c.roles,
+            "created_at": c.created_at.isoformat(),
+            "updated_at": c.updated_at.isoformat(),
+            "updated_by": c.updated_by,
             "custom_fields": c.custom_fields,
         }
         for c in cases
@@ -107,8 +122,9 @@ async def export_suite(
         for r in rows:
             values = {f["name"]: f["value"] for f in r.pop("custom_fields")}
             writer.writerow(
-                r | {"steps": steps_to_text(r["steps"]), "tags": ", ".join(r["tags"]),
-                     "automation_key": r["automation_key"] or "", "external_id": r["external_id"] or ""}
+                {k: ("" if v is None else v) for k, v in r.items()}
+                | {"steps": steps_to_text(r["steps"]), "tags": ", ".join(r["tags"]),
+                   "roles": ", ".join(r["roles"])}
                 | {name: values.get(name, "") for name in extra}
             )
         body, media = buf.getvalue(), "text/csv; charset=utf-8"
@@ -175,6 +191,7 @@ async def import_suite(
     suite_id: int,
     file: UploadFile,
     session: Session,
+    principal: CurrentPrincipal,
     format: Annotated[Literal["csv", "json"] | None, Query(description="Defaults to file extension")] = None,
     section_id: Annotated[int | None, Query(description="Import into this existing section")] = None,
     new_section: Annotated[str | None, Query(max_length=200, description="Import into a top-level section with this name (created if missing)")] = None,
@@ -290,11 +307,22 @@ async def import_suite(
             await session.flush()
             existing[case.id] = case
             result.created += 1
+        # Keep the original dates / editor from the file; otherwise the importer edited it.
+        for k in ("created_at", "updated_at"):
+            when = row.get(k)
+            if isinstance(when, str):
+                when, warning = parse_datetime(when)
+                if warning:
+                    result.warnings.append(f"{label}: {warning}")
+            if when:
+                setattr(case, k, when)
+        case.updated_by = " ".join(str(row.get("updated_by") or "").split())[:200] or principal.user.name
         if case.automation_key:
             keys[case.automation_key] = case.id
         if case.external_id:
             by_external[case.external_id] = case
 
+    await remember_roles(session, suite.project_id, [r for c in existing.values() for r in c.roles])
     if dry_run:
         await session.rollback()
     else:

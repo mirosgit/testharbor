@@ -10,9 +10,11 @@ import { CreateRunDialog } from "@/components/runs/create-run-dialog";
 import { JUnitUploadDialog } from "@/components/runs/junit-upload-dialog";
 import { passRate, percentDone, RunProgress } from "@/components/runs/progress";
 import { CiMeta, RunSourceBadge, timeAgo } from "@/components/runs/run-meta";
+import { Pager, SortMenu, type SortOption, type SortState } from "@/components/sort-menu";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import type { RunSort } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -21,18 +23,24 @@ const TABS = [
   { key: "all", label: "All", closed: undefined },
 ] as const;
 const PAGE = 50;
+const RUN_SORT_OPTIONS: SortOption<RunSort>[] = [
+  { key: "created_at", label: "Created", defaultOrder: "desc" },
+  { key: "name", label: "Name" },
+  { key: "closed_at", label: "Closed", defaultOrder: "desc" },
+];
 
 export default function RunsPage() {
   const { projectId: pid } = useParams<{ projectId: string }>();
   const projectId = Number(pid);
   const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("all");
   const [page, setPage] = useState(0);
+  const [sort, setSort] = useState<SortState<RunSort>>({ sort: "created_at", order: "desc" });
   const [creating, setCreating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const closed = TABS.find((t) => t.key === tab)!.closed;
   const { data, isLoading } = useQuery({
-    queryKey: ["runs", projectId, tab, page],
-    queryFn: () => api.runs(projectId, { closed, limit: PAGE, offset: page * PAGE }),
+    queryKey: ["runs", projectId, tab, page, sort],
+    queryFn: () => api.runs(projectId, { closed, limit: PAGE, offset: page * PAGE, ...sort }),
     placeholderData: (prev) => prev,
   });
 
@@ -59,7 +67,17 @@ export default function RunsPage() {
               </button>
             ))}
           </div>
-          <Button className="ml-auto" size="sm" variant="outline" onClick={() => setUploading(true)}>
+          <div className="ml-auto">
+            <SortMenu
+              options={RUN_SORT_OPTIONS}
+              value={sort}
+              onChange={(v) => {
+                setSort(v);
+                setPage(0);
+              }}
+            />
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setUploading(true)}>
             <Upload /> Upload JUnit
           </Button>
           <Button size="sm" onClick={() => setCreating(true)}>
@@ -121,22 +139,9 @@ export default function RunsPage() {
             ))}
           </div>
         )}
-        {data && data.total > PAGE && (
-          <div className="mt-4 flex items-center justify-end gap-2 text-sm">
-            <span className="text-muted-foreground">
-              {page * PAGE + 1}–{Math.min((page + 1) * PAGE, data.total)} of {data.total}
-            </span>
-            <Button size="sm" variant="outline" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
-              Previous
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={(page + 1) * PAGE >= data.total}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
+        {data && (
+          <div className="mt-4">
+            <Pager page={page} pageSize={PAGE} total={data.total} onPage={setPage} sizes={[PAGE]} />
           </div>
         )}
       </div>

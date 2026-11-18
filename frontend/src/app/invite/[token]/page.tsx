@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const MIN = 10;
 
@@ -47,6 +48,7 @@ export default function InvitePage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
+      <ThemeToggle className="fixed top-3 right-3" />
       <div className="grid w-full max-w-sm gap-4 rounded-xl border bg-card p-8 shadow-sm">
         <div className="flex items-center gap-2">
           <Anchor className="size-6 text-primary" />
