@@ -5,6 +5,7 @@ import { GitBranch } from "lucide-react";
 import Link from "next/link";
 
 import { StatusBadge } from "@/components/badges";
+import { ReportLink } from "@/components/runs/run-meta";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 
@@ -39,6 +40,9 @@ export function CaseHistory({ caseId, projectId }: { caseId: number; projectId: 
                   <p className="truncate text-xs text-muted-foreground">{h.last_result.comment}</p>
                 )}
               </div>
+              {h.last_result?.report_link && (
+                <ReportLink href={h.last_result.report_link} label={`Open in the report of ${h.run_name}`} />
+              )}
               {h.branch && (
                 <span className="hidden items-center gap-1 text-xs text-muted-foreground sm:inline-flex">
                   <GitBranch className="size-3" />

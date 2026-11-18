@@ -112,6 +112,7 @@ def cmd_upload(args: argparse.Namespace) -> int:
         "branch": args.branch or ci.get("branch", ""),
         "commit": args.commit or ci.get("commit", ""),
         "build_url": args.build_url or ci.get("build_url", ""),
+        "report_url": args.report_url or os.environ.get("TESTHARBOR_REPORT_URL", ""),
         "auto_create": "true" if args.auto_create else "",
         "run_id": str(args.run_id) if args.run_id else "",
     }
@@ -148,14 +149,18 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     up = sub.add_parser("upload", help="upload JUnit XML report(s) as a test run",
-                        description="Upload JUnit XML files (paths, globs or directories).")
-    up.add_argument("files", nargs="+", help="JUnit XML files, globs (reports/*.xml) or directories")
+                        description="Upload JUnit XML files or Playwright JSON reports (paths, globs or directories).")
+    up.add_argument("files", nargs="+",
+                    help="JUnit XML / Playwright JSON files, globs (reports/*.xml) or directories (*.xml inside)")
     up.add_argument("--project", "-p", help="project id (or TESTHARBOR_PROJECT)")
     up.add_argument("--run-name", "-n", help="run name (default: CI name + build number, or a timestamp)")
     up.add_argument("--description", help="run description (markdown)")
     up.add_argument("--branch", help="git branch (auto-detected in CI)")
     up.add_argument("--commit", help="git commit sha (auto-detected in CI)")
     up.add_argument("--build-url", help="link to the CI build (auto-detected in CI)")
+    up.add_argument("--report-url",
+                    help="where the HTML report of this run is published (or TESTHARBOR_REPORT_URL); "
+                         "with a Playwright JSON report every case links to its test in it")
     up.add_argument("--auto-create", action="store_true",
                     help="create cases for tests that match nothing (in Unsorted › Automated)")
     up.add_argument("--run-id", type=int, help="append to an existing open run (e.g. parallel CI shards)")

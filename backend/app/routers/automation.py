@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import CurrentPrincipal, Principal, generate_token, hash_token, require_session
 from app.db import get_session
 from app.junit import STATUS_SEVERITY, JUnitCase, JUnitParseError, parse_junit
+from app.playwright_report import looks_like_playwright_json, parse_playwright_json
 from app.models import (
     ApiToken,
     AutomationStatus,
@@ -23,6 +24,7 @@ from app.models import (
     User,
 )
 from app.schemas import (
+    check_report_url,
     JUnitImportResult,
     ResultIn,
     TokenCreated,
@@ -113,17 +115,25 @@ async def import_junit(
     branch: Annotated[str | None, Query(max_length=300)] = None,
     commit: Annotated[str | None, Query(max_length=100)] = None,
     build_url: Annotated[str | None, Query(max_length=2000)] = None,
+    report_url: Annotated[
+        str | None,
+        Query(max_length=2000, description="HTML report of this run, e.g. Playwright's index.html; tests link into it"),
+    ] = None,
     description: str = "",
     auto_create: bool = False,
     run_id: Annotated[int | None, Query(description="Append to this open run instead of creating one")] = None,
 ) -> JUnitImportResult:
-    """Upload one or more JUnit XML files (repeat the `file` field) as a CI test run.
+    """Upload one or more JUnit XML files, or Playwright JSON reports (repeat the `file` field), as a CI test run.
 
     Each test is mapped to a case by, in order: a `case_id` property or `C123` in the test
     name; then `automation_key`; otherwise it is reported as unmatched, or, with
     `auto_create=true`, a new case is created in Unsorted › Automated.
     """
     await get_or_404(session, Project, project_id)
+    try:
+        report_url = check_report_url(report_url)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
 
     tests: list[JUnitCase] = []
     for f in file:
@@ -131,7 +141,7 @@ async def import_junit(
         if len(data) > MAX_UPLOAD_BYTES:
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"{f.filename}: larger than 50 MB")
         try:
-            tests += parse_junit(data)
+            tests += parse_playwright_json(data) if looks_like_playwright_json(data) else parse_junit(data)
         except JUnitParseError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{f.filename or 'file'}: {e}") from e
 
@@ -141,6 +151,8 @@ async def import_junit(
         if run.project_id != project_id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Run belongs to another project")
         ensure_open(run)
+        if report_url:
+            run.report_url = report_url
     else:
         now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
         run = TestRun(
@@ -151,6 +163,7 @@ async def import_junit(
             branch=branch or None,
             commit=commit or None,
             build_url=build_url or None,
+            report_url=report_url or None,
             created_by_id=principal.user.id,
         )
         session.add(run)
@@ -229,6 +242,7 @@ async def import_junit(
                 error_message=t.message,
                 stack_trace=t.details,
                 comment=t.display_name if len(results) > 1 else None,
+                report_link=t.report_link(),
             ), principal.user.id)
             statuses[t.status.value] += 1
 

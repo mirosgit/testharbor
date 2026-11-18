@@ -1,6 +1,27 @@
-import { Bot, ExternalLink, GitBranch, GitCommit, User } from "lucide-react";
+import { Bot, ExternalLink, FileText, GitBranch, GitCommit, User } from "lucide-react";
 
 import type { TestRun } from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+/** Opens a test's page in the run's HTML report (new tab). */
+export function ReportLink({ href, label, className }: { href: string; label: string; className?: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      aria-label={label}
+      title={label}
+      onClick={(e) => e.stopPropagation()}
+      className={cn(
+        "inline-flex items-center gap-1 rounded text-xs text-muted-foreground hover:text-foreground hover:underline",
+        className,
+      )}
+    >
+      <FileText className="size-3.5" />
+    </a>
+  );
+}
 
 export function RunSourceBadge({ run }: { run: TestRun }) {
   return run.source === "ci" ? (
@@ -14,8 +35,8 @@ export function RunSourceBadge({ run }: { run: TestRun }) {
   );
 }
 
-export function CiMeta({ run }: { run: TestRun }) {
-  if (!run.branch && !run.commit && !run.build_url) return null;
+export function CiMeta({ run, report = true }: { run: TestRun; report?: boolean }) {
+  if (!run.branch && !run.commit && !run.build_url && !(report && run.report_url)) return null;
   return (
     <span className="inline-flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
       {run.branch && (
@@ -39,6 +60,17 @@ export function CiMeta({ run }: { run: TestRun }) {
         >
           <ExternalLink className="size-3" />
           Build
+        </a>
+      )}
+      {report && run.report_url && (
+        <a
+          href={run.report_url}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="relative z-10 inline-flex items-center gap-1 hover:text-foreground hover:underline"
+        >
+          <FileText className="size-3" />
+          Report
         </a>
       )}
     </span>
