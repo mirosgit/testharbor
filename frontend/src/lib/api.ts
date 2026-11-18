@@ -1,4 +1,5 @@
 import type {
+  CaseBulkUpdate,
   CaseValues,
   FieldValues,
   ImportTarget,
@@ -119,8 +120,10 @@ export const api = {
   project: (id: number) => request<Project>(`/api/projects/${id}`),
   createProject: (body: { name: string; description?: string }) =>
     request<Project>("/api/projects", json("POST", body)),
-  updateProject: (id: number, body: { name?: string; description?: string }) =>
+  updateProject: (id: number, body: { name?: string; description?: string; roles?: string[] }) =>
     request<Project>(`/api/projects/${id}`, json("PATCH", body)),
+  renameRole: (id: number, old: string, name: string) =>
+    request<Project>(`/api/projects/${id}/roles/rename`, json("POST", { old, new: name })),
   deleteProject: (id: number) => request<void>(`/api/projects/${id}`, json("DELETE")),
 
   suites: (projectId: number) => request<Suite[]>(`/api/projects/${projectId}/suites`),
@@ -148,6 +151,8 @@ export const api = {
   createCase: (body: CaseInput) => request<TestCase>("/api/cases", json("POST", body)),
   updateCase: (id: number, body: Partial<CaseInput>) =>
     request<TestCase>(`/api/cases/${id}`, json("PATCH", body)),
+  bulkUpdateCases: (body: CaseBulkUpdate) =>
+    request<{ updated: number }>("/api/cases/bulk-update", json("POST", body)),
   deleteCase: (id: number) => request<void>(`/api/cases/${id}`, json("DELETE")),
   moveCases: (caseIds: number[], sectionId: number, position?: number) =>
     request<TestCase[]>(

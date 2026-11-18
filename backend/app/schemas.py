@@ -106,23 +106,44 @@ class InviteAccept(BaseModel):
     password: str = Field(max_length=256)
 
 
+def _clean_roles(v: list[str]) -> list[str]:
+    """Trim and dedupe case-insensitively, keeping the first spelling."""
+    seen: dict[str, str] = {}
+    for r in v:
+        r = " ".join(r.split())[:100]
+        if r:
+            seen.setdefault(r.lower(), r)
+    return list(seen.values())
+
+
+Roles = Annotated[list[str], AfterValidator(_clean_roles)]
+
+
 # --- Projects ------------------------------------------------------------------------
 
 
 class ProjectIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str = ""
+    roles: Roles = Field(default=[], max_length=500)
 
 
 class ProjectPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = None
+    roles: Roles | None = Field(default=None, max_length=500)
+
+
+class RoleRename(BaseModel):
+    old: str = Field(min_length=1, max_length=100)
+    new: str = Field(min_length=1, max_length=100)
 
 
 class ProjectOut(ORM):
     id: int
     name: str
     description: str
+    roles: list[str]
     created_at: datetime
     updated_at: datetime
     suite_count: int = 0
@@ -204,16 +225,6 @@ def _clean_key(v: str | None) -> str | None:
     return v or None
 
 
-def _clean_roles(v: list[str]) -> list[str]:
-    """Trim and dedupe case-insensitively, keeping the first spelling."""
-    seen: dict[str, str] = {}
-    for r in v:
-        r = " ".join(r.split())[:100]
-        if r:
-            seen.setdefault(r.lower(), r)
-    return list(seen.values())
-
-
 def _clean_text(v: str | None) -> str | None:
     if v is None:
         return None
@@ -222,7 +233,6 @@ def _clean_text(v: str | None) -> str | None:
 
 
 Tags = Annotated[list[str], AfterValidator(_clean_tags)]
-Roles = Annotated[list[str], AfterValidator(_clean_roles)]
 Owner = Annotated[str | None, Field(max_length=200), AfterValidator(_clean_text)]
 Sprint = Annotated[str | None, Field(max_length=100), AfterValidator(_clean_text)]
 
@@ -334,6 +344,32 @@ class CaseOut(ORM):
 class CaseList(BaseModel):
     items: list[CaseOut]
     total: int
+
+
+class CaseBulkSet(BaseModel):
+    """Fields to overwrite on every case. Omitted = unchanged; null clears optional fields."""
+
+    priority: Priority | None = None
+    type: CaseType | None = None
+    automation_status: AutomationStatus | None = None
+    state: CaseState | None = None
+    owner: Owner = None
+    sprint: Sprint = None
+    automation_complexity: AutomationComplexity | None = None
+    automation_progress: AutomationProgress | None = None
+
+
+class CaseBulkUpdate(BaseModel):
+    case_ids: list[int] = Field(min_length=1, max_length=5000)
+    set: CaseBulkSet = CaseBulkSet()
+    add_tags: Tags = []
+    remove_tags: Tags = []
+    add_roles: Roles = []
+    remove_roles: Roles = []
+
+
+class BulkResult(BaseModel):
+    updated: int
 
 
 class CaseMoveIn(BaseModel):

@@ -15,6 +15,7 @@ import {
   Download,
   FolderPlus,
   MoreHorizontal,
+  Pencil,
   Plus,
   Trash2,
   Upload,
@@ -27,6 +28,7 @@ import { CaseSheet, type SheetState } from "@/components/cases/case-sheet";
 import { CaseTable, type CaseGroup } from "@/components/cases/case-table";
 import { emptyFilters, FilterBar, isFiltered, toCaseFilter, type Filters } from "@/components/cases/filter-bar";
 import { ImportDialog } from "@/components/cases/import-dialog";
+import { BulkEditDialog } from "@/components/cases/bulk-edit-dialog";
 import { MoveDialog } from "@/components/cases/move-dialog";
 import { SectionTree } from "@/components/cases/section-tree";
 import { CaseHistory } from "@/components/runs/case-history";
@@ -62,6 +64,7 @@ type Dialog =
   | { kind: "import" }
   | { kind: "move" }
   | { kind: "bulkDelete" }
+  | { kind: "bulkEdit" }
   | null;
 
 export default function CasesPage() {
@@ -408,6 +411,9 @@ function CasesWorkspace() {
             {selectedIds.length > 0 && (
               <div className="flex items-center gap-2 rounded-md bg-primary/5 px-3 py-1.5 text-sm">
                 <span className="font-medium">{selectedIds.length} selected</span>
+                <Button variant="outline" size="xs" onClick={() => setDialog({ kind: "bulkEdit" })}>
+                  <Pencil /> Edit
+                </Button>
                 <Button variant="outline" size="xs" onClick={() => setDialog({ kind: "move" })}>
                   Move to…
                 </Button>
@@ -548,6 +554,13 @@ function CasesWorkspace() {
               refresh();
               if (r.section_id) setParams({ section: r.section_id, case: null });
             }}
+          />
+          <BulkEditDialog
+            open={dialog?.kind === "bulkEdit"}
+            onOpenChange={(o) => !o && close()}
+            projectId={projectId}
+            caseIds={selectedIds}
+            onDone={refresh}
           />
           <MoveDialog
             open={dialog?.kind === "move"}

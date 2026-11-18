@@ -361,7 +361,7 @@ async def test_builtin_fields_import_filter_and_roundtrip(client: AsyncClient, m
 
     values = (await client.get(f"/api/projects/{p['id']}/case-values")).json()
     assert values == {"owners": ["Ada Admin", "Jane Doe", "John Roe"], "sprints": ["Sprint 12", "Sprint 13"],
-                      "roles": ["Admin", "Customer", "Warehouse manager"]}
+                      "roles": ["Admin", "Warehouse manager", "Customer"]}  # project list order
 
     # Editing sets "last updated by"; optional fields can be cleared with null.
     r = await client.patch(f"/api/cases/{case['id']}", json={

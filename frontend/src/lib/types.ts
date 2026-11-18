@@ -46,6 +46,8 @@ export interface Project {
   id: number;
   name: string;
   description: string;
+  /** Roles to pick from when marking which user roles a case applies to. */
+  roles: string[];
   created_at: string;
   updated_at: string;
   suite_count: number;
@@ -79,6 +81,25 @@ export interface CustomField {
 export interface FieldValues {
   name: string;
   values: string[];
+}
+
+/** Fields to overwrite on many cases at once; omitted = unchanged, null = clear. */
+export interface CaseBulkUpdate {
+  case_ids: number[];
+  set?: Partial<{
+    priority: Priority;
+    type: CaseType;
+    automation_status: AutomationStatus;
+    state: CaseState;
+    owner: string | null;
+    sprint: string | null;
+    automation_complexity: AutomationComplexity | null;
+    automation_progress: AutomationProgress | null;
+  }>;
+  add_tags?: string[];
+  remove_tags?: string[];
+  add_roles?: string[];
+  remove_roles?: string[];
 }
 
 /** Owners, sprints and roles in use in a project (owners include active users). */

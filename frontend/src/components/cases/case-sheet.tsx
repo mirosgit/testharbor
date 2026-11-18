@@ -49,6 +49,7 @@ import {
 } from "@/lib/types";
 
 import { CustomFieldsEditor, CustomFieldsView } from "./custom-fields";
+import { RolePicker } from "./role-picker";
 import { StepsEditor } from "./steps-editor";
 import { TagInput } from "./tag-input";
 
@@ -424,6 +425,7 @@ function CaseForm({
       qc.invalidateQueries({ queryKey: ["tags", projectId] });
       qc.invalidateQueries({ queryKey: ["custom-fields", projectId] });
       qc.invalidateQueries({ queryKey: ["case-values", projectId] });
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
       onSaved(saved);
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : "Save failed"),
@@ -607,14 +609,12 @@ function CaseForm({
             </Select>
           </Field>
           <Field label="Roles" htmlFor="case-roles">
-            <TagInput
+            <RolePicker
               id="case-roles"
               value={v.roles}
               onChange={(r) => set("roles", r)}
-              suggestions={known?.roles ?? []}
-              lowercase={false}
-              placeholder="Add roles…"
-              noun="role"
+              options={known?.roles ?? []}
+              projectId={projectId}
             />
           </Field>
         </div>

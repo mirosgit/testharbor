@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Base, RunCase, Section, TestCase, TestResult, TestRun
+from app.models import Base, Project, RunCase, Section, TestCase, TestResult, TestRun
 from app.schemas import CaseFilter, ResultIn, RunSelection, RunStats
 
 M = TypeVar("M", bound=Base)
@@ -160,6 +160,23 @@ async def filtered_cases_query(
                 TestCase.custom_fields.contains([{"name": name, "value": v}]) for v in values
             ]))
     return stmt
+
+
+# --- Project roles -------------------------------------------------------------------
+
+
+async def remember_roles(session: AsyncSession, project_id: int, roles: list[str]) -> None:
+    """Append roles used on cases to the project's role list (case-insensitive), so the
+    list stays the full set to pick from."""
+    if not roles:
+        return
+    project = await session.get(Project, project_id, with_for_update=True)
+    if project is None:
+        return
+    known = {r.lower() for r in project.roles}
+    new = [r for r in dict.fromkeys(roles) if r.lower() not in known]
+    if new:
+        project.roles = [*project.roles, *new]
 
 
 # --- Runs ----------------------------------------------------------------------------
