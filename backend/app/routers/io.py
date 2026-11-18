@@ -35,7 +35,7 @@ from app.case_import import parse_csv, parse_datetime, steps_to_text, text_to_st
 from app.db import get_session
 from app.models import Section, Suite, TestCase
 from app.schemas import CaseFields, ExtraColumn, ImportResult
-from app.services import CASE_REF, get_or_404, section_paths, suite_sections, tree_order
+from app.services import CASE_REF, get_or_404, remember_roles, section_paths, suite_sections, tree_order
 
 router = APIRouter(prefix="/api", tags=["import/export"])
 Session = Annotated[AsyncSession, Depends(get_session)]
@@ -321,6 +321,7 @@ async def import_suite(
         if case.external_id:
             by_external[case.external_id] = case
 
+    await remember_roles(session, suite.project_id, [r for c in existing.values() for r in c.roles])
     if dry_run:
         await session.rollback()
     else:

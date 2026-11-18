@@ -22,6 +22,8 @@ from app.models import (
 )
 from app.schemas import (
     CLEARABLE_FIELDS,
+    BulkResult,
+    CaseBulkUpdate,
     CaseFilter,
     CaseIn,
     CaseList,
@@ -37,6 +39,7 @@ from app.services import (
     get_or_404,
     next_case_position,
     parse_case_ref,
+    remember_roles,
 )
 
 router = APIRouter(prefix="/api", tags=["cases"])
@@ -139,14 +142,18 @@ async def list_custom_fields(project_id: int, session: Session) -> list[FieldVal
 
 @router.get("/projects/{project_id}/case-values", response_model=CaseValues)
 async def list_case_values(project_id: int, session: Session) -> CaseValues:
-    """Owners, sprints and roles used in the project (owners also include active users)."""
+    """Owners, sprints and roles for pickers. Owners include active users; roles are the
+    project's list, then any other roles found on cases."""
+    project = await get_or_404(session, Project, project_id)
     in_project = TestCase.project_id == project_id
     owners = set(await session.scalars(select(TestCase.owner).where(in_project, TestCase.owner.is_not(None)).distinct()))
     owners |= set(await session.scalars(select(User.name).where(User.is_active)))
     sprints = await session.scalars(select(TestCase.sprint).where(in_project, TestCase.sprint.is_not(None)).distinct())
     role = func.unnest(TestCase.roles).label("role")
     sub = select(role).where(in_project).subquery()
-    roles = await session.scalars(select(sub.c.role).distinct())
+    used = await session.scalars(select(sub.c.role).distinct())
+    listed = {r.lower() for r in project.roles}
+    extra = sorted((r for r in used if r.lower() not in listed), key=str.lower)
 
     def natural(v: str) -> list[object]:  # "Sprint 9" before "Sprint 10"
         return [int(p) if p.isdigit() else p.lower() for p in re.split(r"(\d+)", v)]
@@ -154,7 +161,7 @@ async def list_case_values(project_id: int, session: Session) -> CaseValues:
     return CaseValues(
         owners=sorted(owners, key=str.lower),
         sprints=sorted(sprints, key=natural),
-        roles=sorted(roles, key=str.lower),
+        roles=[*project.roles, *extra],
     )
 
 
@@ -179,8 +186,40 @@ async def create_case(body: CaseIn, session: Session, principal: CurrentPrincipa
         **body.model_dump(mode="json"),
     )
     session.add(case)
+    await remember_roles(session, case.project_id, case.roles)
     await commit_or_409(session)
     return case
+
+
+@router.post("/cases/bulk-update", response_model=BulkResult)
+async def bulk_update_cases(body: CaseBulkUpdate, session: Session, principal: CurrentPrincipal) -> BulkResult:
+    """Change fields of many cases at once (all must be in one project)."""
+    cases = list(await session.scalars(select(TestCase).where(TestCase.id.in_(body.case_ids))))
+    missing = sorted(set(body.case_ids) - {c.id for c in cases})
+    if missing:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Cases not found: {', '.join(f'C{i}' for i in missing)}")
+    projects = {c.project_id for c in cases}
+    if len(projects) != 1:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cases must belong to one project")
+
+    values = body.set.model_dump(mode="json", exclude_unset=True)
+    values = {k: v for k, v in values.items() if v is not None or k in CLEARABLE_FIELDS}
+    drop_tags = set(body.remove_tags)
+    drop_roles = {r.lower() for r in body.remove_roles}
+    for c in cases:
+        for k, v in values.items():
+            setattr(c, k, v)
+        if body.add_tags or drop_tags:
+            c.tags = [t for t in dict.fromkeys([*c.tags, *body.add_tags]) if t not in drop_tags]
+        if body.add_roles or drop_roles:
+            have = {r.lower() for r in c.roles}
+            merged = [*c.roles, *(r for r in body.add_roles if r.lower() not in have)]
+            c.roles = [r for r in merged if r.lower() not in drop_roles]
+        if session.is_modified(c):
+            c.updated_by = principal.user.name
+    await remember_roles(session, projects.pop(), body.add_roles)
+    await session.commit()
+    return BulkResult(updated=len(cases))
 
 
 @router.get("/cases/{case_ref}", response_model=CaseOut)
@@ -203,6 +242,8 @@ async def update_case(
         setattr(case, k, v)
     if session.is_modified(case):
         case.updated_by = principal.user.name
+    if "roles" in data:
+        await remember_roles(session, case.project_id, case.roles)
     await commit_or_409(session)
     return case
 

@@ -25,6 +25,13 @@ test("log in, create a project, suite, section and case", async ({ page }) => {
   await page.getByRole("button", { name: "Create", exact: true }).click();
   await expect(page.getByRole("tree").getByText("Checkout")).toBeVisible();
 
+  // Project roles are set up once in the project settings.
+  await page.getByRole("link", { name: "Settings" }).click();
+  await page.getByLabel("New role").fill("Admin, Cashier");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(page.getByTestId("project-roles").getByRole("listitem")).toHaveText(["Admin", "Cashier"]);
+  await page.getByRole("link", { name: "Test cases" }).click();
+
   await page.getByRole("button", { name: "Add case" }).first().click();
   await page.getByLabel("Title").fill("Pay with a saved card");
   await page.getByRole("button", { name: "Add step" }).click();
@@ -34,9 +41,10 @@ test("log in, create a project, suite, section and case", async ({ page }) => {
   await page.getByRole("option", { name: "Draft" }).click();
   await page.getByLabel("Owner").fill("Jane QA");
   await page.getByLabel("Sprint").fill("Sprint 7");
-  await page.getByLabel("Roles").fill("Admin,");
-  await page.getByLabel("Roles").fill("Cashier");
-  await page.getByLabel("Roles").press("Enter");
+  await page.getByLabel("Roles").click();
+  await page.getByRole("checkbox", { name: "Admin" }).click();
+  await page.getByRole("checkbox", { name: "Cashier" }).click();
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Add field" }).click();
   await page.getByLabel("Field 1 name").fill("Reviewer");
   await page.getByLabel("Field 1 value").fill("Ann");
@@ -66,6 +74,17 @@ test("log in, create a project, suite, section and case", async ({ page }) => {
   await page.getByRole("checkbox", { name: "Cashier" }).click();
   await page.keyboard.press("Escape");
   await expect(row).toBeVisible();
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+
+  // Bulk edit the selected cases.
+  await row.getByRole("checkbox").click();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  const bulk = page.getByRole("dialog");
+  await bulk.getByRole("combobox", { name: "State" }).click();
+  await page.getByRole("option", { name: "Outdated" }).click();
+  await bulk.getByRole("button", { name: "Apply to 1 cases" }).click();
+  await expect(bulk).toBeHidden();
+  await expect(row).toContainText("Outdated");
 
   // Search narrows the list.
   await page.getByLabel("Search cases").fill("nothing like this");

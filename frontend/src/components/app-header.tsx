@@ -33,6 +33,7 @@ export function AppHeader() {
     ? [
         { href: `/projects/${projectId}/cases`, label: "Test cases" },
         { href: `/projects/${projectId}/runs`, label: "Test runs" },
+        { href: `/projects/${projectId}/settings`, label: "Settings" },
       ]
     : [];
 

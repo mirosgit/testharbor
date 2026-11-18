@@ -264,3 +264,17 @@ An admin cannot demote or deactivate themselves. The system always keeps at leas
 - **API.** Filters `state`, `automation_complexity`, `automation_progress`, `owner`, `sprint`, `role` (repeatable; owner/sprint/role values are not split on commas). `GET /api/projects/{id}/case-values` returns owners, sprints and roles for autocomplete.
 - **UI.** The case editor has State, Owner, Sprint, Automation progress, Automation complexity and Roles. The case card shows them, plus Created and Last updated (with who). The list flags non-active states. The "Fields" filter lists the built-in fields first, then custom fields.
 - **Dark theme.** It uses the existing `.dark` tokens. An inline `<head>` script applies the stored choice (`localStorage["testharbor-theme"]`: light, dark, or absent for system) before the first paint. The toggle is in the header and on the login/invite pages.
+
+## Phase 11: project roles, bulk edit
+
+- **Project roles (migration 0006).** `projects.roles` is a `varchar[]` in display order, seeded from roles already used on the project's cases. It is edited in the new project Settings page (`PATCH /api/projects/{id}` with `roles`).
+  - `POST /api/projects/{id}/roles/rename` renames a role in the list and on all cases; renaming onto an existing role merges them.
+  - Removing a role from the list leaves it on cases.
+  - Roles set on cases (editor, API, import, bulk edit) that are not in the list are appended to it, so the list stays complete.
+  - The case editor picks roles with checkboxes and can add a new one inline.
+- **Bulk edit.** `POST /api/cases/bulk-update` takes `{case_ids, set: {...}, add_tags, remove_tags, add_roles, remove_roles}`.
+  - Omitted fields stay unchanged; `null` clears owner, sprint, automation progress and automation complexity.
+  - All cases must be in one project.
+  - Sets "last updated by".
+  - UI: "Edit" in the selection bar opens a dialog where every field defaults to "Keep as is".
+

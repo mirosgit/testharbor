@@ -150,6 +150,10 @@ class Project(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # Roles offered when tagging cases with the user roles they apply to, in display order.
+    roles: Mapped[list[str]] = mapped_column(
+        ARRAY(String(100)), default=list, server_default=text("'{}'::varchar[]")
+    )
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _updated()
 
