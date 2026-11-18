@@ -1,6 +1,6 @@
 """Import / export of a suite's cases as CSV or JSON.
 
-Export CSV columns: id, external_id, section_path, title, preconditions, steps, expected_result,
+Export CSV columns: id, external_id, section_path, title, description, preconditions, steps, expected_result,
 priority, type, tags, automation_status, automation_key, state, owner, automation_complexity,
 automation_progress, sprint, roles, created_at, updated_at, updated_by, then one column per
 custom field.
@@ -41,7 +41,7 @@ router = APIRouter(prefix="/api", tags=["import/export"])
 Session = Annotated[AsyncSession, Depends(get_session)]
 
 CSV_COLUMNS = [
-    "id", "external_id", "section_path", "title", "preconditions", "steps", "expected_result",
+    "id", "external_id", "section_path", "title", "description", "preconditions", "steps", "expected_result",
     "priority", "type", "tags", "automation_status", "automation_key", "state", "owner",
     "automation_complexity", "automation_progress", "sprint", "roles", "created_at", "updated_at",
     "updated_by",
@@ -66,6 +66,7 @@ async def _export_rows(session: AsyncSession, suite: Suite) -> list[dict[str, An
             "external_id": c.external_id,
             "section_path": paths[c.section_id],
             "title": c.title,
+            "description": c.description,
             "preconditions": c.preconditions,
             "steps": c.steps,
             "expected_result": c.expected_result,

@@ -318,15 +318,13 @@ def parse_csv(text: str, columns: set[str] | None = None) -> ParsedCsv:
     rows, warnings = [], []
     for n, r in raw_rows:
         pre = unwrap(cell(r, "preconditions"))
-        desc = unwrap(cell(r, "description"))
-        if desc:
-            pre = f"{desc}\n\n{pre}" if pre else desc
         row: dict[str, Any] = {
             "_line": n,
             "id": cell(r, "id"),
             "external_id": cell(r, "external_id").strip() or None,
             "section_path": cell(r, "section_path"),
             "title": " ".join(cell(r, "title").split()),
+            "description": unwrap(cell(r, "description")),
             "preconditions": pre,
             "steps": text_to_steps(cell(r, "steps")),
             "expected_result": unwrap(cell(r, "expected_result")),

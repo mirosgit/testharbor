@@ -121,6 +121,7 @@ export interface TestCase {
   suite_id: number;
   section_id: number;
   title: string;
+  description: string;
   preconditions: string;
   steps: Step[];
   expected_result: string;

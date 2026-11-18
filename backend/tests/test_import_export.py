@@ -50,7 +50,8 @@ async def test_csv_export(client: AsyncClient, make) -> None:  # type: ignore[no
     iso = datetime.fromisoformat
     assert iso(row.pop("created_at")) == iso(c["created_at"]) and iso(row.pop("updated_at")) == iso(c["updated_at"])
     assert row == {
-        "id": c["key"], "external_id": "", "section_path": "Auth > Login", "title": "Login works", "preconditions": "",
+        "id": c["key"], "external_id": "", "section_path": "Auth > Login", "title": "Login works", "description": "",
+        "preconditions": "",
         "steps": "1. Open => Shown", "expected_result": "", "priority": "high", "type": "functional",
         "tags": "auth, smoke", "automation_status": "manual", "automation_key": "t::login",
         "state": "active", "owner": "", "automation_complexity": "", "automation_progress": "", "sprint": "",
@@ -183,8 +184,9 @@ def test_parse_browserstack_export() -> None:
         "2. Warehouse received a note with correct reason"
     )
     assert first["tags"] == ["order_cancellation", "warehouse", "regression"]
-    # Description goes on top of the preconditions; "Undefined" type falls back to the default.
-    assert second["preconditions"].startswith("Coupons must not survive a restore.\n\n1. User")
+    # Description is its own field; "Undefined" type falls back to the default.
+    assert second["description"] == "Coupons must not survive a restore."
+    assert second["preconditions"].startswith("1. User")
     assert (second["type"], second["automation_status"]) == (None, "manual")
     assert parsed.rows[2]["priority"] == "critical"
     assert parsed.rows[3]["steps"] == [{"action": "Just one unnumbered step", "expected": ""}]
