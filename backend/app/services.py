@@ -12,7 +12,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Base, Project, RunCase, Section, TestCase, TestResult, TestRun
-from app.schemas import CaseFilter, ResultIn, RunSelection, RunStats
+from app.schemas import (
+    CaseFilter,
+    ResultIn,
+    RunSelection,
+    RunStats,
+    _clean_roles,
+    preferred_role,
+    role_key,
+)
 
 M = TypeVar("M", bound=Base)
 
@@ -166,17 +174,33 @@ async def filtered_cases_query(
 
 
 async def remember_roles(session: AsyncSession, project_id: int, roles: list[str]) -> None:
-    """Append roles used on cases to the project's role list (case-insensitive), so the
-    list stays the full set to pick from."""
+    """Keep the project's Applicable Roles list complete and free of variants.
+
+    Roles used on cases that the list doesn't have are appended. Spellings of one role
+    ("admin", "Super Admin" vs "Super Admin (SA)", see role_key) are unified across the list
+    and every case of the project, preferring the spelling with the abbreviation.
+    """
     if not roles:
         return
     project = await session.get(Project, project_id, with_for_update=True)
     if project is None:
         return
-    known = {r.lower() for r in project.roles}
-    new = [r for r in dict.fromkeys(roles) if r.lower() not in known]
-    if new:
-        project.roles = [*project.roles, *new]
+    before = list(project.roles)
+    canon: dict[str, str] = {}
+    for r in [*before, *roles]:
+        k = role_key(r)
+        canon[k] = preferred_role(canon[k], r) if k in canon else r
+    merged = list(dict.fromkeys(canon[role_key(r)] for r in [*before, *roles]))
+    if merged != before:
+        project.roles = merged
+    # Spellings that lost to another one; cases using them are rewritten.
+    stale = sorted({r for r in [*before, *roles] if canon[role_key(r)] != r})
+    if stale:
+        cases = await session.scalars(
+            select(TestCase).where(TestCase.project_id == project_id, TestCase.roles.overlap(stale))
+        )
+        for case in cases:
+            case.roles = _clean_roles([canon.get(role_key(r), r) for r in case.roles])
 
 
 # --- Runs ----------------------------------------------------------------------------

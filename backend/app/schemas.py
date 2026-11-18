@@ -137,13 +137,45 @@ class InviteAccept(BaseModel):
     password: str = Field(max_length=256)
 
 
+_ROLE_ABBR = re.compile(r"^(?P<base>.*\S)\s*\((?P<abbr>[A-Z][A-Za-z]{0,5})\)$")
+
+
+def _abbreviates(abbr: str, name: str) -> bool:
+    """"SA" for "Super Admin", "PdM" for "Product Manager": same first letter, and the
+    abbreviation's letters appear in the name in order."""
+    letters = [c for c in name.lower() if c.isalnum()]
+    if not letters or abbr[0].lower() != letters[0]:
+        return False
+    rest = iter(letters)
+    return all(ch in rest for ch in abbr.lower())
+
+
+def role_key(role: str) -> str:
+    """Identity of a role: case-insensitive, and "Super Admin (SA)" is the same role as
+    "Super Admin". Other parentheses ("Admin (read-only)") are part of the name."""
+    r = " ".join(role.split())
+    m = _ROLE_ABBR.match(r)
+    if m and _abbreviates(m["abbr"], m["base"]):
+        r = m["base"]
+    return r.lower()
+
+
+def preferred_role(current: str, other: str) -> str:
+    """Of two spellings of one role, keep the one carrying its abbreviation, else the current."""
+    def has_abbr(r: str) -> bool:
+        return role_key(r) != " ".join(r.split()).lower()
+
+    return other if has_abbr(other) and not has_abbr(current) else current
+
+
 def _clean_roles(v: list[str]) -> list[str]:
-    """Trim and dedupe case-insensitively, keeping the first spelling."""
+    """Trim and dedupe (see role_key), keeping the first position and the fullest spelling."""
     seen: dict[str, str] = {}
     for r in v:
         r = " ".join(r.split())[:100]
         if r:
-            seen.setdefault(r.lower(), r)
+            k = role_key(r)
+            seen[k] = preferred_role(seen[k], r) if k in seen else r
     return list(seen.values())
 
 
