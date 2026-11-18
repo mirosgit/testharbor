@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import type { Filters } from "@/components/cases/filter-bar";
+import { isFiltered, toCaseFilter, type Filters } from "@/components/cases/filter-bar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -72,9 +72,7 @@ export function CreateRunDialog({
   const f = context.filters;
   const hasView =
     context.visibleCount !== undefined &&
-    (context.sectionId != null ||
-      !!(f && (f.q || f.tags.length || f.priority.length || f.type.length || f.automation_status.length ||
-        Object.keys(f.fields).length)));
+    (context.sectionId != null || (!!f && isFiltered(f)));
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -123,12 +121,7 @@ export function CreateRunDialog({
           filter: {
             suite_id: context.suiteId,
             section_id: context.sectionId ?? undefined,
-            q: f?.q || undefined,
-            tags: f?.tags,
-            priority: f?.priority,
-            type: f?.type,
-            automation_status: f?.automation_status,
-            fields: f?.fields,
+            ...(f ? toCaseFilter(f) : {}),
           },
         };
       case "sections":

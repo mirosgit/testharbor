@@ -5,6 +5,8 @@ import io
 import json
 from pathlib import Path
 
+from datetime import UTC, datetime
+
 import pytest
 from httpx import AsyncClient
 
@@ -43,11 +45,17 @@ async def test_csv_export(client: AsyncClient, make) -> None:  # type: ignore[no
     assert r.status_code == 200
     assert 'filename="web-app-cases.csv"' in r.headers["content-disposition"]
     rows = list(csv.DictReader(io.StringIO(r.text)))
-    assert rows == [{
+    assert len(rows) == 1
+    row = rows[0]
+    iso = datetime.fromisoformat
+    assert iso(row.pop("created_at")) == iso(c["created_at"]) and iso(row.pop("updated_at")) == iso(c["updated_at"])
+    assert row == {
         "id": c["key"], "external_id": "", "section_path": "Auth > Login", "title": "Login works", "preconditions": "",
         "steps": "1. Open => Shown", "expected_result": "", "priority": "high", "type": "functional",
         "tags": "auth, smoke", "automation_status": "manual", "automation_key": "t::login",
-    }]
+        "state": "active", "owner": "", "automation_complexity": "", "automation_progress": "", "sprint": "",
+        "roles": "", "updated_by": "Ada Admin",
+    }
 
 
 async def test_json_roundtrip_into_new_suite(client: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]
@@ -180,21 +188,23 @@ def test_parse_browserstack_export() -> None:
     assert (second["type"], second["automation_status"]) == (None, "manual")
     assert parsed.rows[2]["priority"] == "critical"
     assert parsed.rows[3]["steps"] == [{"action": "Just one unnumbered step", "expected": ""}]
-    # Extra columns become custom fields, except tool-internal ones; empty columns are not offered.
+    # BrowserStack's extra columns map to built-in fields.
+    assert (first["state"], first["owner"], first["automation_complexity"], first["automation_progress"],
+            first["sprint"], first["roles"], first["updated_by"]) == (
+        "active", "Jane Doe", "not_applicable", "cannot_be_automated", "Sprint 12", ["Admin"], "jdoe")
+    assert first["created_at"] == datetime(2026, 6, 22, 9, 26, 20, tzinfo=UTC)
+    assert first["updated_at"] == datetime(2026, 6, 22, 11, 27, 39, tzinfo=UTC)
+    assert (second["state"], second["automation_complexity"], second["automation_progress"], second["roles"]) == (
+        "pending_review", "medium", "in_progress", ["Admin", "Warehouse manager"])
+    assert (parsed.rows[3]["owner"], parsed.rows[3]["sprint"], parsed.rows[3]["created_at"]) == ("Jane Doe", None, None)
+    # Other columns become custom fields, except tool-internal ones; empty columns are not offered.
     assert parsed.ignored_columns == ["Folder ID", "Template Type", "Template Name", "Project Name", "Test Case URL"]
-    assert dict(parsed.extra_columns)["Owner"] is True and "Issues" not in dict(parsed.extra_columns)
-    assert first["custom_fields"] == [
-        {"name": "State", "value": "Active"}, {"name": "Owner", "value": "Jane Doe"},
-        {"name": "Automation Complexity", "value": "Not Applicable"},
-        {"name": "Automation Status (custom)", "value": "Can Not Be Automated"},
-        {"name": "Sprint No.", "value": "Sprint 12"}, {"name": "Created At", "value": "06/22/2026 09:26:20"},
-        {"name": "Last Updated At", "value": "06/22/2026 11:27:39"}, {"name": "Last Updated By", "value": "jdoe"},
-    ]
+    assert dict(parsed.extra_columns)["Created By"] is True and "Issues" not in dict(parsed.extra_columns)
+    assert first["custom_fields"] == [] and second["custom_fields"] == [{"name": "Created By", "value": "John Roe"}]
     # Pick columns explicitly (case-insensitive); everything else is ignored.
-    picked = parse_csv(BROWSERSTACK, {"owner", "SPRINT NO."})
-    assert picked.rows[0]["custom_fields"] == [{"name": "Owner", "value": "Jane Doe"},
-                                               {"name": "Sprint No.", "value": "Sprint 12"}]
-    assert "State" in picked.ignored_columns
+    picked = parse_csv(BROWSERSTACK, {"folder id"})
+    assert picked.rows[0]["custom_fields"] == [{"name": "Folder ID", "value": "5001"}]
+    assert "Created By" in picked.ignored_columns
     # Records are numbered like spreadsheet rows (header = 1), even with multi-line cells.
     assert parsed.warnings == [
         "row 5: priority 'Whatever' not recognized, used medium",
@@ -286,45 +296,97 @@ async def test_custom_fields_import_preview_merge_filter_export(client: AsyncCli
     assert {c["name"]: c["selected"] for c in preview["extra_columns"]}["Folder ID"] is False
     assert (await client.get(f"/api/suites/{s['id']}/sections")).json() == []
 
-    body = await _import_csv(client, s["id"], BROWSERSTACK, new_section="Shop",
-                             columns=["Owner", "State", "Sprint No."])
-    assert body["created"] == 4 and "Created At" in body["ignored_columns"]
-    case = (await client.get(f"/api/projects/{p['id']}/cases", params={"q": "TC-101"})).json()["items"][0]
-    assert case["custom_fields"] == [{"name": "State", "value": "Active"}, {"name": "Owner", "value": "Jane Doe"},
-                                     {"name": "Sprint No.", "value": "Sprint 12"}]
+    body = await _import_csv(client, s["id"], BROWSERSTACK, new_section="Shop", columns=["Created By", "Folder ID"])
+    assert body["created"] == 4 and "Template Name" in body["ignored_columns"]
+    case = (await client.get(f"/api/projects/{p['id']}/cases", params={"q": "TC-102"})).json()["items"][0]
+    assert case["custom_fields"] == [{"name": "Folder ID", "value": "5001"}, {"name": "Created By", "value": "John Roe"}]
 
     # A field added by hand survives a re-import; imported ones are refreshed.
     fields = case["custom_fields"] + [{"name": "Reviewer", "value": "Ann"}]
-    fields[0] = {"name": "State", "value": "Draft"}
+    fields[1] = {"name": "Created By", "value": "Someone else"}
     await client.patch(f"/api/cases/{case['id']}", json={"custom_fields": fields})
-    await _import_csv(client, s["id"], BROWSERSTACK, new_section="Shop", columns=["Owner", "State", "Sprint No."])
+    await _import_csv(client, s["id"], BROWSERSTACK, new_section="Shop", columns=["Created By", "Folder ID"])
     after = (await client.get(f"/api/cases/{case['id']}")).json()["custom_fields"]
-    assert after == [{"name": "State", "value": "Active"}, {"name": "Owner", "value": "Jane Doe"},
-                     {"name": "Sprint No.", "value": "Sprint 12"}, {"name": "Reviewer", "value": "Ann"}]
+    assert after == [{"name": "Folder ID", "value": "5001"}, {"name": "Created By", "value": "John Roe"},
+                     {"name": "Reviewer", "value": "Ann"}]
 
     # Field values for filters, and filtering (same name: any value; different names: all).
     listing = {f["name"]: f["values"] for f in (await client.get(f"/api/projects/{p['id']}/custom-fields")).json()}
-    assert listing["Owner"] == ["Jane Doe", "John Roe"] and listing["Sprint No."] == ["Sprint 12", "Sprint 13"]
+    assert listing["Created By"] == ["John Roe"] and listing["Folder ID"] == ["5001", "5002"]
 
     async def ext(**params):  # type: ignore[no-untyped-def]
         r = await client.get(f"/api/projects/{p['id']}/cases", params=params)
         assert r.status_code == 200, r.text
         return sorted(c["external_id"] for c in r.json()["items"])
 
-    assert await ext(field="Owner=Jane Doe") == ["TC-101", "TC-103", "TC-104"]
-    assert await ext(field=["Owner=Jane Doe", "Sprint No.=Sprint 12"]) == ["TC-101", "TC-103"]
-    assert await ext(field=["Sprint No.=Sprint 12", "Sprint No.=Sprint 13"]) == ["TC-101", "TC-102", "TC-103"]
+    assert await ext(field="Folder ID=5001") == ["TC-101", "TC-102"]
+    assert await ext(field=["Folder ID=5001", "Created By=John Roe"]) == ["TC-102"]
+    assert await ext(field=["Folder ID=5001", "Folder ID=5002"]) == ["TC-101", "TC-102", "TC-103", "TC-104"]
     assert (await client.get(f"/api/projects/{p['id']}/cases", params={"field": "nope"})).status_code == 422
 
     # Export has a column per field; importing that export into another suite keeps them.
     exported = (await client.get(f"/api/suites/{s['id']}/export", params={"format": "csv"})).text
     header = next(csv.reader(io.StringIO(exported)))
-    assert header[-4:] == ["State", "Owner", "Sprint No.", "Reviewer"]
+    assert header[-3:] == ["Folder ID", "Created By", "Reviewer"]
     other = await make.suite(p["id"], "Copy")
     copied = await _import_csv(client, other["id"], exported.replace("TC-", "XC-"))
     assert copied["created"] == 4 and copied["ignored_columns"] == []
-    c2 = (await client.get(f"/api/projects/{p['id']}/cases", params={"q": "XC-101"})).json()["items"][0]
-    assert {f["name"] for f in c2["custom_fields"]} == {"State", "Owner", "Sprint No.", "Reviewer"}
+    c2 = (await client.get(f"/api/projects/{p['id']}/cases", params={"q": "XC-102"})).json()["items"][0]
+    assert {f["name"] for f in c2["custom_fields"]} == {"Folder ID", "Created By", "Reviewer"}
+
+
+async def test_builtin_fields_import_filter_and_roundtrip(client: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]
+    p = await make.project()
+    s = await make.suite(p["id"])
+    await _import_csv(client, s["id"], BROWSERSTACK, new_section="Shop")
+
+    async def ext(**params):  # type: ignore[no-untyped-def]
+        r = await client.get(f"/api/projects/{p['id']}/cases", params=params)
+        assert r.status_code == 200, r.text
+        return sorted(c["external_id"] for c in r.json()["items"])
+
+    case = (await client.get(f"/api/projects/{p['id']}/cases", params={"q": "TC-101"})).json()["items"][0]
+    # Original dates and editor from the file are kept.
+    assert case["created_at"].startswith("2026-06-22T09:26:20") and case["updated_by"] == "jdoe"
+    no_meta = (await client.get(f"/api/projects/{p['id']}/cases", params={"q": "TC-104"})).json()["items"][0]
+    assert no_meta["updated_by"] == "Ada Admin"  # the importer
+
+    assert await ext(state="pending_review") == ["TC-102"]
+    assert await ext(owner="Jane Doe") == ["TC-101", "TC-103", "TC-104"]
+    assert await ext(sprint=["Sprint 12", "Sprint 13"]) == ["TC-101", "TC-102", "TC-103"]
+    assert await ext(role="Admin") == ["TC-101", "TC-102"]
+    assert await ext(role=["Customer", "Warehouse manager"]) == ["TC-102", "TC-103"]
+    assert await ext(automation_complexity="medium", automation_progress="automated") == ["TC-103"]
+    assert (await client.get(f"/api/projects/{p['id']}/cases", params={"state": "bogus"})).status_code == 422
+
+    values = (await client.get(f"/api/projects/{p['id']}/case-values")).json()
+    assert values == {"owners": ["Ada Admin", "Jane Doe", "John Roe"], "sprints": ["Sprint 12", "Sprint 13"],
+                      "roles": ["Admin", "Customer", "Warehouse manager"]}
+
+    # Editing sets "last updated by"; optional fields can be cleared with null.
+    r = await client.patch(f"/api/cases/{case['id']}", json={
+        "owner": None, "sprint": "  Sprint   14 ", "roles": ["Editor", "editor ", "Reviewer"], "state": "outdated"})
+    assert r.status_code == 200, r.text
+    edited = r.json()
+    assert (edited["owner"], edited["sprint"], edited["roles"], edited["state"], edited["updated_by"]) == (
+        None, "Sprint 14", ["Editor", "Reviewer"], "outdated", "Ada Admin")
+    assert (await client.patch(f"/api/cases/{case['id']}", json={"state": None})).json()["state"] == "outdated"
+
+    # The CSV export re-imports losslessly into another suite.
+    exported = (await client.get(f"/api/suites/{s['id']}/export", params={"format": "csv"})).text
+    other = await make.suite(p["id"], "Copy")
+    await _import_csv(client, other["id"], exported.replace("TC-", "XC-"))
+    copy = (await client.get(f"/api/projects/{p['id']}/cases", params={"q": "XC-101"})).json()["items"][0]
+    for k in ("owner", "sprint", "roles", "state", "automation_complexity", "automation_progress",
+              "created_at", "updated_at", "updated_by"):
+        assert copy[k] == edited[k], k
+
+
+async def test_new_case_defaults(client: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]
+    _, _, sec = await make.tree()
+    c = await make.case(sec["id"])
+    assert (c["state"], c["owner"], c["roles"], c["automation_complexity"], c["updated_by"]) == (
+        "active", None, [], None, "Ada Admin")
 
 
 async def test_custom_fields_validation(client: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]

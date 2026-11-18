@@ -1,12 +1,36 @@
+import re
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import CurrentPrincipal
 from app.db import get_session
-from app.models import AutomationStatus, CaseType, Priority, Project, Section, Suite, TestCase
-from app.schemas import CaseFilter, CaseIn, CaseList, CaseMoveIn, CaseOut, CasePatch, FieldValues
+from app.models import (
+    AutomationComplexity,
+    AutomationProgress,
+    AutomationStatus,
+    CaseState,
+    CaseType,
+    Priority,
+    Project,
+    Section,
+    Suite,
+    TestCase,
+    User,
+)
+from app.schemas import (
+    CLEARABLE_FIELDS,
+    CaseFilter,
+    CaseIn,
+    CaseList,
+    CaseMoveIn,
+    CaseOut,
+    CasePatch,
+    CaseValues,
+    FieldValues,
+)
 from app.services import (
     commit_or_409,
     filtered_cases_query,
@@ -36,6 +60,12 @@ def case_filter_params(
     priority: Annotated[list[str] | None, Query()] = None,
     type: Annotated[list[str] | None, Query()] = None,
     automation_status: Annotated[list[str] | None, Query()] = None,
+    state: Annotated[list[str] | None, Query()] = None,
+    automation_complexity: Annotated[list[str] | None, Query()] = None,
+    automation_progress: Annotated[list[str] | None, Query()] = None,
+    owner: Annotated[list[str] | None, Query(description="Any of these owners (repeat, no comma splitting)")] = None,
+    sprint: Annotated[list[str] | None, Query(description="Any of these sprints (repeat)")] = None,
+    role: Annotated[list[str] | None, Query(description="Cases for any of these roles (repeat)")] = None,
     field: Annotated[
         list[str] | None, Query(description='Custom field filter "Name=Value"; repeat for more')
     ] = None,
@@ -56,6 +86,13 @@ def case_filter_params(
             priority=[Priority(p) for p in _split(priority)],
             type=[CaseType(t) for t in _split(type)],
             automation_status=[AutomationStatus(a) for a in _split(automation_status)],
+            state=[CaseState(x) for x in _split(state)],
+            automation_complexity=[AutomationComplexity(x) for x in _split(automation_complexity)],
+            automation_progress=[AutomationProgress(x) for x in _split(automation_progress)],
+            # Free-text values may contain commas, so these are not split.
+            owner=[x.strip() for x in owner or [] if x.strip()],
+            sprint=[x.strip() for x in sprint or [] if x.strip()],
+            roles=[x.strip() for x in role or [] if x.strip()],
             fields=fields,
         )
     except ValueError as e:
@@ -100,6 +137,27 @@ async def list_custom_fields(project_id: int, session: Session) -> list[FieldVal
     return [FieldValues(name=n, values=v) for n, v in out.items()]
 
 
+@router.get("/projects/{project_id}/case-values", response_model=CaseValues)
+async def list_case_values(project_id: int, session: Session) -> CaseValues:
+    """Owners, sprints and roles used in the project (owners also include active users)."""
+    in_project = TestCase.project_id == project_id
+    owners = set(await session.scalars(select(TestCase.owner).where(in_project, TestCase.owner.is_not(None)).distinct()))
+    owners |= set(await session.scalars(select(User.name).where(User.is_active)))
+    sprints = await session.scalars(select(TestCase.sprint).where(in_project, TestCase.sprint.is_not(None)).distinct())
+    role = func.unnest(TestCase.roles).label("role")
+    sub = select(role).where(in_project).subquery()
+    roles = await session.scalars(select(sub.c.role).distinct())
+
+    def natural(v: str) -> list[object]:  # "Sprint 9" before "Sprint 10"
+        return [int(p) if p.isdigit() else p.lower() for p in re.split(r"(\d+)", v)]
+
+    return CaseValues(
+        owners=sorted(owners, key=str.lower),
+        sprints=sorted(sprints, key=natural),
+        roles=sorted(roles, key=str.lower),
+    )
+
+
 @router.get("/projects/{project_id}/tags", response_model=list[str])
 async def list_tags(project_id: int, session: Session) -> list[str]:
     """All distinct tags used in the project (for autocomplete)."""
@@ -110,13 +168,14 @@ async def list_tags(project_id: int, session: Session) -> list[str]:
 
 
 @router.post("/cases", response_model=CaseOut, status_code=status.HTTP_201_CREATED)
-async def create_case(body: CaseIn, session: Session) -> TestCase:
+async def create_case(body: CaseIn, session: Session, principal: CurrentPrincipal) -> TestCase:
     section = await get_or_404(session, Section, body.section_id)
     suite = await get_or_404(session, Suite, section.suite_id)
     case = TestCase(
         project_id=suite.project_id,
         suite_id=suite.id,
         position=await next_case_position(session, section.id),
+        updated_by=principal.user.name,
         **body.model_dump(mode="json"),
     )
     session.add(case)
@@ -130,16 +189,20 @@ async def get_case(case_ref: str, session: Session) -> TestCase:
 
 
 @router.patch("/cases/{case_ref}", response_model=CaseOut)
-async def update_case(case_ref: str, body: CasePatch, session: Session) -> TestCase:
+async def update_case(
+    case_ref: str, body: CasePatch, session: Session, principal: CurrentPrincipal
+) -> TestCase:
     case = await get_or_404(session, TestCase, parse_case_ref(case_ref))
     data = body.model_dump(mode="json", exclude_unset=True)
-    # automation_key may be explicitly cleared with null; other fields ignore nulls.
-    data = {k: v for k, v in data.items() if v is not None or k in ("automation_key", "external_id")}
+    # Optional fields may be explicitly cleared with null; other fields ignore nulls.
+    data = {k: v for k, v in data.items() if v is not None or k in CLEARABLE_FIELDS}
     section_id = data.pop("section_id", None)
     if section_id is not None and section_id != case.section_id:
         await _move(session, [case], section_id, None)
     for k, v in data.items():
         setattr(case, k, v)
+    if session.is_modified(case):
+        case.updated_by = principal.user.name
     await commit_or_409(session)
     return case
 

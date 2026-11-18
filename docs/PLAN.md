@@ -248,4 +248,19 @@ An admin cannot demote or deactivate themselves. The system always keeps at leas
   - Re-importing merges fields: imported fields replace fields with the same name, and fields added by hand are kept.
 - **Export.** CSV export adds one column per field name, so an export can be imported back without losing fields.
 - **Filtering.** API: `?field=Name=Value`, repeatable. Several values for one name match any of them; different names must all match. UI: the "Fields" filter.
-- **Dates.** Dates from other tools (Created At…) are stored as text exactly as exported. They are not converted into TestHarbor's own timestamps.
+- **Dates.** Superseded by Phase 10: Created At / Last Updated At now set the case's own timestamps.
+
+## Phase 10: built-in case fields, dark theme
+
+- **Model (migration 0005).** New columns on `test_cases`:
+  - `state`: draft / active (default) / pending_review / outdated / rejected.
+  - `owner`, `sprint`: free text, with suggestions. Owner suggestions include active users' names. It is deliberately not a user FK: imported owners are often people without an account.
+  - `roles`: `varchar[]` with a GIN index. Case is kept as entered; duplicates are removed case-insensitively.
+  - `automation_complexity`: not_applicable / low / medium / high.
+  - `automation_progress`: not_automated / in_progress / automated / cannot_be_automated. BrowserStack's custom "Automation Status (custom)" column maps here; the standard "Automation Status" still maps to `automation_status`.
+  - `updated_by`: display name, set on create/edit, or taken from "Last Updated By" on import.
+- **Data migration.** Values that earlier imports kept as custom fields with these names are moved into the columns. Values that can't be mapped stay as custom fields.
+- **Import.** Header aliases for the new fields. Values are mapped with tolerance for typos ("Not Aplicable"). Dates are parsed as ISO or US `MM/DD/YYYY HH:MM[:SS]`; no timezone means UTC. Created At / Last Updated At set `created_at` / `updated_at`. In TestHarbor's own CSV export every extra column is selected by default.
+- **API.** Filters `state`, `automation_complexity`, `automation_progress`, `owner`, `sprint`, `role` (repeatable; owner/sprint/role values are not split on commas). `GET /api/projects/{id}/case-values` returns owners, sprints and roles for autocomplete.
+- **UI.** The case editor has State, Owner, Sprint, Automation progress, Automation complexity and Roles. The case card shows them, plus Created and Last updated (with who). The list flags non-active states. The "Fields" filter lists the built-in fields first, then custom fields.
+- **Dark theme.** It uses the existing `.dark` tokens. An inline `<head>` script applies the stored choice (`localStorage["testharbor-theme"]`: light, dark, or absent for system) before the first paint. The toggle is in the header and on the login/invite pages.

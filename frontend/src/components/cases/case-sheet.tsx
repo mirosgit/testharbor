@@ -5,7 +5,7 @@ import { Copy, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { AutomationIcon, PriorityBadge, Tag } from "@/components/badges";
+import { AutomationIcon, PriorityBadge, StateBadge, Tag } from "@/components/badges";
 import { ConfirmDialog } from "@/components/dialogs";
 import { Markdown, MarkdownField } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
@@ -27,13 +27,24 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api";
-import { automationLabel, priorityLabel, typeLabel } from "@/lib/labels";
+import {
+  automationLabel,
+  complexityLabel,
+  priorityLabel,
+  progressLabel,
+  stateLabel,
+  typeLabel,
+} from "@/lib/labels";
 import type { SectionNode } from "@/lib/tree";
 import {
+  AUTOMATION_COMPLEXITIES,
+  AUTOMATION_PROGRESSES,
   AUTOMATION_STATUSES,
+  CASE_STATES,
   CASE_TYPES,
   PRIORITIES,
   type CaseInput,
+  type CaseState,
   type TestCase,
 } from "@/lib/types";
 
@@ -54,6 +65,12 @@ const emptyCase = (sectionId: number): CaseInput => ({
   tags: [],
   automation_status: "manual",
   automation_key: null,
+  state: "active",
+  owner: null,
+  automation_complexity: null,
+  automation_progress: null,
+  sprint: null,
+  roles: [],
   custom_fields: [],
 });
 
@@ -68,8 +85,21 @@ const toInput = (c: TestCase): CaseInput => ({
   tags: c.tags,
   automation_status: c.automation_status,
   automation_key: c.automation_key,
+  state: c.state,
+  owner: c.owner,
+  automation_complexity: c.automation_complexity,
+  automation_progress: c.automation_progress,
+  sprint: c.sprint,
+  roles: c.roles,
   custom_fields: c.custom_fields,
 });
+
+const NONE = "__none__"; // Radix Select can't use "" as an item value
+
+const dateTime = (iso: string) =>
+  new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+
+const Empty = () => <span className="text-muted-foreground">—</span>;
 
 export function CaseSheet({
   state,
@@ -210,18 +240,44 @@ function CaseView({
       </SheetHeader>
 
       <div className="grid gap-6 p-6">
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-4">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-4" data-testid="case-meta">
+          <Meta label="State">
+            <StateBadge state={c.state} />
+          </Meta>
           <Meta label="Priority">
             <PriorityBadge priority={c.priority} />
           </Meta>
           <Meta label="Type">{typeLabel[c.type]}</Meta>
+          <Meta label="Owner">{c.owner ?? <Empty />}</Meta>
           <Meta label="Automation">
             <span className="inline-flex items-center gap-1.5">
               <AutomationIcon status={c.automation_status} />
               {automationLabel[c.automation_status]}
             </span>
           </Meta>
-          <Meta label="Updated">{new Date(c.updated_at).toLocaleDateString()}</Meta>
+          <Meta label="Automation progress">
+            {c.automation_progress ? progressLabel[c.automation_progress] : <Empty />}
+          </Meta>
+          <Meta label="Automation complexity">
+            {c.automation_complexity ? complexityLabel[c.automation_complexity] : <Empty />}
+          </Meta>
+          <Meta label="Sprint">{c.sprint ?? <Empty />}</Meta>
+          <Meta label="Roles" className="col-span-2">
+            {c.roles.length ? (
+              <div className="flex flex-wrap gap-1">
+                {c.roles.map((r) => (
+                  <Tag key={r}>{r}</Tag>
+                ))}
+              </div>
+            ) : (
+              <Empty />
+            )}
+          </Meta>
+          <Meta label="Created">{dateTime(c.created_at)}</Meta>
+          <Meta label="Last updated">
+            {dateTime(c.updated_at)}
+            {c.updated_by && <div className="text-xs text-muted-foreground">by {c.updated_by}</div>}
+          </Meta>
           {c.external_id && (
             <Meta label="External ID">
               <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{c.external_id}</code>
@@ -343,6 +399,10 @@ function CaseForm({
     queryKey: ["custom-fields", projectId],
     queryFn: () => api.customFields(projectId),
   });
+  const { data: known } = useQuery({
+    queryKey: ["case-values", projectId],
+    queryFn: () => api.caseValues(projectId),
+  });
   const set = <K extends keyof CaseInput>(k: K, val: CaseInput[K]) => setV((p) => ({ ...p, [k]: val }));
 
   const save = useMutation({
@@ -350,6 +410,8 @@ function CaseForm({
       const body = {
         ...v,
         steps: v.steps.filter((s) => s.action.trim() || s.expected.trim()),
+        owner: v.owner?.trim() || null,
+        sprint: v.sprint?.trim() || null,
         custom_fields: v.custom_fields.filter((f) => f.name.trim() && f.value.trim()),
       };
       return caseId ? api.updateCase(caseId, body) : api.createCase(body);
@@ -361,6 +423,7 @@ function CaseForm({
       qc.invalidateQueries({ queryKey: ["sections"] });
       qc.invalidateQueries({ queryKey: ["tags", projectId] });
       qc.invalidateQueries({ queryKey: ["custom-fields", projectId] });
+      qc.invalidateQueries({ queryKey: ["case-values", projectId] });
       onSaved(saved);
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : "Save failed"),
@@ -459,6 +522,100 @@ function CaseForm({
                 ))}
               </SelectContent>
             </Select>
+          </Field>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label="State">
+            <Select value={v.state} onValueChange={(x) => set("state", x as CaseState)}>
+              <SelectTrigger className="w-full" aria-label="State">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CASE_STATES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {stateLabel[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Owner" htmlFor="case-owner">
+            <Input
+              id="case-owner"
+              value={v.owner ?? ""}
+              onChange={(e) => set("owner", e.target.value || null)}
+              list="case-owner-options"
+              placeholder="Who maintains the case"
+              maxLength={200}
+            />
+            <datalist id="case-owner-options">
+              {known?.owners.map((o) => <option key={o} value={o} />)}
+            </datalist>
+          </Field>
+          <Field label="Sprint" htmlFor="case-sprint">
+            <Input
+              id="case-sprint"
+              value={v.sprint ?? ""}
+              onChange={(e) => set("sprint", e.target.value || null)}
+              list="case-sprint-options"
+              placeholder="e.g. Sprint 125"
+              maxLength={100}
+            />
+            <datalist id="case-sprint-options">
+              {known?.sprints.map((o) => <option key={o} value={o} />)}
+            </datalist>
+          </Field>
+          <Field label="Automation progress">
+            <Select
+              value={v.automation_progress ?? NONE}
+              onValueChange={(x) =>
+                set("automation_progress", x === NONE ? null : (x as CaseInput["automation_progress"]))
+              }
+            >
+              <SelectTrigger className="w-full" aria-label="Automation progress">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Not set</SelectItem>
+                {AUTOMATION_PROGRESSES.map((a) => (
+                  <SelectItem key={a} value={a}>
+                    {progressLabel[a]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Automation complexity">
+            <Select
+              value={v.automation_complexity ?? NONE}
+              onValueChange={(x) =>
+                set("automation_complexity", x === NONE ? null : (x as CaseInput["automation_complexity"]))
+              }
+            >
+              <SelectTrigger className="w-full" aria-label="Automation complexity">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Not set</SelectItem>
+                {AUTOMATION_COMPLEXITIES.map((a) => (
+                  <SelectItem key={a} value={a}>
+                    {complexityLabel[a]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Roles" htmlFor="case-roles">
+            <TagInput
+              id="case-roles"
+              value={v.roles}
+              onChange={(r) => set("roles", r)}
+              suggestions={known?.roles ?? []}
+              lowercase={false}
+              placeholder="Add roles…"
+              noun="role"
+            />
           </Field>
         </div>
 

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Toaster } from "sonner";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useTheme } from "@/lib/theme";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [client] = useState(
@@ -13,10 +14,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
         defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: false, retry: 1 } },
       }),
   );
+  const { resolved } = useTheme();
   return (
     <QueryClientProvider client={client}>
       <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
-      <Toaster richColors position="bottom-right" />
+      <Toaster richColors position="bottom-right" theme={resolved} />
     </QueryClientProvider>
   );
 }

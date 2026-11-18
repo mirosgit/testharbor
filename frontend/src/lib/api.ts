@@ -1,4 +1,5 @@
 import type {
+  CaseValues,
   FieldValues,
   ImportTarget,
   AdminUser,
@@ -81,6 +82,10 @@ export function filterParams(f: object): URLSearchParams {
       continue;
     }
     if (v === undefined || v === null || v === "") continue;
+    if (k === "roles" && Array.isArray(v)) {
+      v.forEach((x) => p.append("role", String(x))); // the query param is singular
+      continue;
+    }
     if (Array.isArray(v)) v.forEach((x) => p.append(k, String(x)));
     else p.set(k, String(v));
   }
@@ -138,6 +143,7 @@ export const api = {
     request<CaseList>(`/api/projects/${projectId}/cases?${filterParams({ ...f })}&limit=5000`),
   tags: (projectId: number) => request<string[]>(`/api/projects/${projectId}/tags`),
   customFields: (projectId: number) => request<FieldValues[]>(`/api/projects/${projectId}/custom-fields`),
+  caseValues: (projectId: number) => request<CaseValues>(`/api/projects/${projectId}/case-values`),
   case: (ref: number | string) => request<TestCase>(`/api/cases/${ref}`),
   createCase: (body: CaseInput) => request<TestCase>("/api/cases", json("POST", body)),
   updateCase: (id: number, body: Partial<CaseInput>) =>
