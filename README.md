@@ -21,7 +21,7 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
   Markdown. Any number of **custom fields** can be added on top, and you can filter by them.
 - **Search and filters.** Search by title or `C123`, and filter by tags, priority, type,
   automation status, state, owner, sprint, roles and custom fields.
-- **Project roles.** Each project keeps a list of user roles (Settings → Roles); cases pick from
+- **Applicable Roles.** Each project keeps a list of user roles (Settings → Applicable Roles); cases pick from
   it. Renaming a role renames it in every case.
 - **Bulk edit.** Select cases and change state, priority, type, automation fields, owner or sprint,
   or add/remove tags and roles on all of them at once.

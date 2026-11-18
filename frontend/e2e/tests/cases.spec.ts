@@ -47,11 +47,11 @@ test("log in, create a project, suite, section and case", async ({ page }) => {
   await page.getByRole("combobox", { name: "Sprint" }).click();
   await page.keyboard.type("Sprint 7");
   await page.keyboard.press("Enter");
-  await page.getByRole("combobox", { name: "Roles" }).click();
+  await page.getByRole("combobox", { name: "Applicable Roles" }).click();
   await page.getByRole("option", { name: "Admin" }).click();
   await page.getByRole("option", { name: "Cashier" }).click();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("combobox", { name: "Roles" })).toContainText("AdminCashier");
+  await expect(page.getByRole("combobox", { name: "Applicable Roles" })).toContainText("AdminCashier");
   await page.getByRole("combobox", { name: "Tags" }).click();
   await page.keyboard.type("Payments");
   await page.keyboard.press("Enter");
@@ -83,7 +83,7 @@ test("log in, create a project, suite, section and case", async ({ page }) => {
   // Filter by a built-in field from the "Fields" popover.
   await page.getByRole("button", { name: "Fields" }).click();
   await page.getByRole("combobox", { name: "Field" }).click();
-  await page.getByRole("option", { name: "Roles" }).click();
+  await page.getByRole("option", { name: "Applicable Roles" }).click();
   await page.getByRole("checkbox", { name: "Cashier" }).click();
   await page.keyboard.press("Escape");
   await expect(row).toBeVisible();

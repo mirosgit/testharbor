@@ -131,7 +131,7 @@ function Roles({ project }: { project: Project }) {
   return (
     <section className="grid gap-4" data-testid="project-roles">
       <div>
-        <h2 className="text-lg font-semibold">Roles</h2>
+        <h2 className="text-lg font-semibold">Applicable Roles</h2>
         <p className="text-sm text-muted-foreground">
           User roles of the product under test. Cases pick from this list. Renaming a role also renames it in all
           cases; removing it from the list keeps it on cases that already have it.
@@ -157,7 +157,7 @@ function Roles({ project }: { project: Project }) {
       </form>
       {project.roles.length === 0 ? (
         <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-          No roles yet. Roles used in cases or imported from a file are added here automatically.
+          No applicable roles yet. Roles used in cases or imported from a file are added here automatically.
         </p>
       ) : (
         <ul className="divide-y rounded-md border">
