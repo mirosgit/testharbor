@@ -277,6 +277,8 @@ class TestRun(Base):
     branch: Mapped[str | None] = mapped_column(String(300), nullable=True)
     commit: Mapped[str | None] = mapped_column(String(100), nullable=True)
     build_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    # HTML report of the run (e.g. Playwright's); results may link into it.
+    report_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     closed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by_id: Mapped[int | None] = mapped_column(
@@ -324,6 +326,8 @@ class TestResult(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     stack_trace: Mapped[str | None] = mapped_column(Text, nullable=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Link to this result's details: absolute URL, or "#…" relative to the run's report_url.
+    report_link: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

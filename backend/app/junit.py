@@ -25,6 +25,10 @@ CASE_ID_IN_NAME = re.compile(r"(?<![A-Za-z0-9])C(\d+)(?!\d)")
 CASE_ID_VALUE = re.compile(r"^\s*[Cc]?(\d+)\s*$")
 CASE_ID_PROPERTIES = {"case_id", "case_ids", "caseid", "testharbor_case_id", "test_case_id"}
 KEY_PROPERTIES = {"automation_key", "testharbor_key", "nodeid"}
+# A link to this test's details in an HTML report: an absolute URL, or a Playwright test id
+# that is appended to the run's report URL as "#?testId=<id>".
+LINK_PROPERTIES = {"report_url", "report_link", "testharbor_link", "link", "url"}
+TEST_ID_PROPERTIES = {"pw_test_id", "playwright_test_id", "testid"}
 
 MAX_TEXT = 64 * 1024  # cap stored message/trace size per result
 
@@ -90,6 +94,20 @@ class JUnitCase:
     def default_key(self) -> str:
         """automation_key to store on an auto-created case."""
         return self.explicit_key() or self.display_name
+
+    def report_link(self) -> str | None:
+        """Absolute http(s) URL, or "#?testId=…" relative to the run's report URL."""
+        for prop, values in self.properties.items():
+            if prop.lower() in LINK_PROPERTIES:
+                for v in values:
+                    if re.match(r"^https?://\S+$", v.strip(), re.I) and len(v.strip()) <= 2000:
+                        return v.strip()
+        for prop, values in self.properties.items():
+            if prop.lower() in TEST_ID_PROPERTIES:
+                for v in values:
+                    if re.fullmatch(r"[A-Za-z0-9_-]{1,200}", v.strip()):
+                        return f"#?testId={v.strip()}"
+        return None
 
     def duration_ms(self) -> int | None:
         return None if self.time_s is None else max(0, round(self.time_s * 1000))

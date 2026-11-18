@@ -64,3 +64,29 @@ test("JUnit upload with an API token creates a CI run", async ({ page, baseURL }
   await expect(page.getByText("main", { exact: true })).toBeVisible();
   await expect(page.getByTestId("run-case-row").filter({ hasText: "Login works" })).toContainText("expected 200, got 500");
 });
+
+test("Playwright JSON upload links each case to its test in the HTML report", async ({ page }) => {
+  await login(page);
+  const { project, cases } = await seedProject(page.request, ["Checkout works"]);
+  const report = {
+    config: { projects: [{ name: "chromium" }] },
+    suites: [{ title: "checkout.spec.ts", specs: [{
+      title: `${cases[0].key} checkout works`, id: "abc123-def456", file: "checkout.spec.ts", tags: [],
+      tests: [{ status: "expected", projectName: "chromium", annotations: [], results: [{ status: "passed", duration: 1200 }] }],
+    }] }],
+  };
+  const reportUrl = "http://127.0.0.1:8766/lbrjgd/index.html";
+  const r = await page.request.post(
+    `/api/projects/${project.id}/runs/import-junit?run_name=PW%20json&report_url=${encodeURIComponent(reportUrl)}`,
+    { multipart: { file: { name: "results.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(report)) } } },
+  );
+  expect(r.ok(), await r.text()).toBeTruthy();
+
+  await page.goto(`/projects/${project.id}/runs/${(await r.json()).run_id}`);
+  await expect(page.getByRole("link", { name: "Report", exact: true })).toHaveAttribute("href", reportUrl);
+  const row = page.getByTestId("run-case-row").filter({ hasText: "checkout works" });
+  await expect(row.getByRole("link", { name: `Open ${cases[0].key} in the report` })).toHaveAttribute(
+    "href",
+    `${reportUrl}#?testId=abc123-def456`,
+  );
+});
