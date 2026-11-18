@@ -208,6 +208,7 @@ class TestCase(Base):
     suite_id: Mapped[int] = mapped_column(ForeignKey("suites.id", ondelete="CASCADE"), index=True)
     section_id: Mapped[int] = mapped_column(ForeignKey("sections.id", ondelete="CASCADE"))
     title: Mapped[str] = mapped_column(String(500))
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
     preconditions: Mapped[str] = mapped_column(Text, default="", server_default="")
     # [{"action": str, "expected": str}, ...]
     steps: Mapped[list[dict[str, Any]]] = mapped_column(

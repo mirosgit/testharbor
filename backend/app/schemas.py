@@ -264,6 +264,7 @@ ExternalId = Annotated[str | None, Field(max_length=200), AfterValidator(_clean_
 
 class CaseFields(BaseModel):
     title: str = Field(min_length=1, max_length=500)
+    description: str = ""
     preconditions: str = ""
     steps: list[Step] = []
     expected_result: str = ""
@@ -294,6 +295,7 @@ class CaseIn(CaseFields):
 class CasePatch(BaseModel):
     section_id: int | None = None
     title: str | None = Field(default=None, min_length=1, max_length=500)
+    description: str | None = None
     preconditions: str | None = None
     steps: list[Step] | None = None
     expected_result: str | None = None
@@ -319,6 +321,7 @@ class CaseOut(ORM):
     suite_id: int
     section_id: int
     title: str
+    description: str
     preconditions: str
     steps: list[Step]
     expected_result: str

@@ -59,6 +59,7 @@ export type SheetState = { mode: "view"; caseId: number } | { mode: "create"; se
 const emptyCase = (sectionId: number): CaseInput => ({
   section_id: sectionId,
   title: "",
+  description: "",
   preconditions: "",
   steps: [],
   expected_result: "",
@@ -79,6 +80,7 @@ const emptyCase = (sectionId: number): CaseInput => ({
 const toInput = (c: TestCase): CaseInput => ({
   section_id: c.section_id,
   title: c.title,
+  description: c.description,
   preconditions: c.preconditions,
   steps: c.steps,
   expected_result: c.expected_result,
@@ -135,7 +137,7 @@ export function CaseSheet({
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full gap-0 overflow-y-auto sm:max-w-3xl lg:max-w-5xl" data-testid="case-sheet">
+      <SheetContent className="w-full gap-0 overflow-y-auto sm:max-w-3xl lg:max-w-4xl" data-testid="case-sheet">
         {isCreate ? (
           <CaseForm
             key={`new-${state.sectionId}`}
@@ -309,6 +311,12 @@ function CaseView({
           </Block>
         )}
 
+        {c.description.trim() && (
+          <Block title="Description">
+            <Markdown>{c.description}</Markdown>
+          </Block>
+        )}
+
         {c.preconditions.trim() && (
           <Block title="Preconditions">
             <Markdown>{c.preconditions}</Markdown>
@@ -454,39 +462,36 @@ function CaseForm({
         <SheetTitle>{title}</SheetTitle>
         <SheetDescription>Markdown is supported in text fields. Ctrl+Enter saves.</SheetDescription>
       </SheetHeader>
-      <div className="grid flex-1 content-start gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="grid content-start gap-5">
-          <div className="grid gap-2">
-            <Label htmlFor="case-title">Title</Label>
-            <Input
-              id="case-title"
-              value={v.title}
-              onChange={(e) => set("title", e.target.value)}
-              autoFocus
-              placeholder="e.g. Login with valid credentials"
-            />
-          </div>
+      {/* Field order and grouping follow BrowserStack Test Management's case form. */}
+      <div className="grid flex-1 content-start gap-5 p-6">
+        <Field label="Title" htmlFor="case-title" required>
+          <Input
+            id="case-title"
+            value={v.title}
+            onChange={(e) => set("title", e.target.value)}
+            autoFocus
+            placeholder="e.g. Login with valid credentials"
+          />
+        </Field>
 
-          <Field label="Preconditions" htmlFor="case-preconditions">
-            <MarkdownField id="case-preconditions" value={v.preconditions} onChange={(x) => set("preconditions", x)} />
-          </Field>
+        <Field label="Description" htmlFor="case-description">
+          <MarkdownField id="case-description" value={v.description} onChange={(x) => set("description", x)} />
+        </Field>
 
-          <Field label="Steps">
-            <StepsEditor steps={v.steps} onChange={(s) => set("steps", s)} />
-          </Field>
+        <Field label="Preconditions" htmlFor="case-preconditions">
+          <MarkdownField id="case-preconditions" value={v.preconditions} onChange={(x) => set("preconditions", x)} />
+        </Field>
 
-          <Field label="Expected result" htmlFor="case-expected">
-            <MarkdownField id="case-expected" value={v.expected_result} onChange={(x) => set("expected_result", x)} />
-          </Field>
+        <Field label="Steps">
+          <StepsEditor steps={v.steps} onChange={(s) => set("steps", s)} />
+        </Field>
 
-          <Field label="Custom fields">
-            <CustomFieldsEditor value={v.custom_fields} onChange={(f) => set("custom_fields", f)} known={knownFields} />
-          </Field>
-        </div>
+        <Field label="Expected Result" htmlFor="case-expected">
+          <MarkdownField id="case-expected" value={v.expected_result} onChange={(x) => set("expected_result", x)} />
+        </Field>
 
-        <aside className="grid content-start gap-3 lg:border-l lg:pl-6" aria-label="Case properties">
-          <SideHeading>Details</SideHeading>
-          <Prop label="Section">
+        <FormSection title="Details">
+          <Field label="Section">
             <Select value={String(v.section_id)} onValueChange={(x) => set("section_id", Number(x))}>
               <SelectTrigger className="w-full" aria-label="Section">
                 <SelectValue />
@@ -499,65 +504,29 @@ function CaseForm({
                 ))}
               </SelectContent>
             </Select>
-          </Prop>
-          <Prop label="State">
-            <EnumSelect label="State" value={v.state} onChange={(x) => x && set("state", x)} options={CASE_STATES} labels={stateLabel} />
-          </Prop>
-          <Prop label="Priority">
-            <EnumSelect label="Priority" value={v.priority} onChange={(x) => x && set("priority", x)} options={PRIORITIES} labels={priorityLabel} />
-          </Prop>
-          <Prop label="Type">
-            <EnumSelect label="Type" value={v.type} onChange={(x) => x && set("type", x)} options={CASE_TYPES} labels={typeLabel} />
-          </Prop>
-          <Prop label="Owner" htmlFor="case-owner">
+          </Field>
+          <Field label="Owner" htmlFor="case-owner">
             <Combobox
               id="case-owner"
               aria-label="Owner"
               value={v.owner}
               onChange={(x) => set("owner", x)}
               options={known?.owners ?? []}
-              placeholder="No owner"
+              placeholder="Select owner"
               searchPlaceholder="Find a person"
               creatable
             />
-          </Prop>
-          <Prop label="Sprint" htmlFor="case-sprint">
-            <Combobox
-              id="case-sprint"
-              aria-label="Sprint"
-              value={v.sprint}
-              onChange={(x) => set("sprint", x)}
-              options={known?.sprints ?? []}
-              placeholder="No sprint"
-              searchPlaceholder="Find a sprint"
-              creatable
-            />
-          </Prop>
-          <Prop label="Roles" htmlFor="case-roles">
-            <RolePicker
-              id="case-roles"
-              value={v.roles}
-              onChange={(r) => set("roles", r)}
-              options={known?.roles ?? []}
-              projectId={projectId}
-            />
-          </Prop>
-          <Prop label="Tags" htmlFor="case-tags">
-            <MultiCombobox
-              id="case-tags"
-              aria-label="Tags"
-              value={v.tags}
-              onChange={(t) => set("tags", t)}
-              options={tagSuggestions}
-              placeholder="No tags"
-              searchPlaceholder="Find a tag"
-              normalize={(t) => t.trim().toLowerCase()}
-              noun="tag"
-            />
-          </Prop>
-
-          <SideHeading className="pt-3">Automation</SideHeading>
-          <Prop label="Status">
+          </Field>
+          <Field label="State">
+            <EnumSelect label="State" value={v.state} onChange={(x) => x && set("state", x)} options={CASE_STATES} labels={stateLabel} />
+          </Field>
+          <Field label="Priority">
+            <EnumSelect label="Priority" value={v.priority} onChange={(x) => x && set("priority", x)} options={PRIORITIES} labels={priorityLabel} />
+          </Field>
+          <Field label="Type of Test Case">
+            <EnumSelect label="Type" value={v.type} onChange={(x) => x && set("type", x)} options={CASE_TYPES} labels={typeLabel} />
+          </Field>
+          <Field label="Automation Status">
             <EnumSelect
               label="Automation status"
               value={v.automation_status}
@@ -565,18 +534,24 @@ function CaseForm({
               options={AUTOMATION_STATUSES}
               labels={automationLabel}
             />
-          </Prop>
-          <Prop label="Progress">
-            <EnumSelect
-              label="Automation progress"
-              value={v.automation_progress}
-              onChange={(x) => set("automation_progress", x)}
-              options={AUTOMATION_PROGRESSES}
-              labels={progressLabel}
-              nullable
+          </Field>
+          <Field label="Tags" htmlFor="case-tags" wide>
+            <MultiCombobox
+              id="case-tags"
+              aria-label="Tags"
+              value={v.tags}
+              onChange={(t) => set("tags", t)}
+              options={tagSuggestions}
+              placeholder="Add tags"
+              searchPlaceholder="Find a tag"
+              normalize={(t) => t.trim().toLowerCase()}
+              noun="tag"
             />
-          </Prop>
-          <Prop label="Complexity">
+          </Field>
+        </FormSection>
+
+        <FormSection title="Custom Fields">
+          <Field label="Automation Complexity">
             <EnumSelect
               label="Automation complexity"
               value={v.automation_complexity}
@@ -585,18 +560,52 @@ function CaseForm({
               labels={complexityLabel}
               nullable
             />
-          </Prop>
-          <Prop label="Key" htmlFor="case-automation-key">
+          </Field>
+          <Field label="Automation Progress">
+            <EnumSelect
+              label="Automation progress"
+              value={v.automation_progress}
+              onChange={(x) => set("automation_progress", x)}
+              options={AUTOMATION_PROGRESSES}
+              labels={progressLabel}
+              nullable
+            />
+          </Field>
+          <Field label="Applicable Roles" htmlFor="case-roles">
+            <RolePicker
+              id="case-roles"
+              value={v.roles}
+              onChange={(r) => set("roles", r)}
+              options={known?.roles ?? []}
+              projectId={projectId}
+              placeholder="Select roles"
+            />
+          </Field>
+          <Field label="Sprint No." htmlFor="case-sprint">
+            <Combobox
+              id="case-sprint"
+              aria-label="Sprint"
+              value={v.sprint}
+              onChange={(x) => set("sprint", x)}
+              options={known?.sprints ?? []}
+              placeholder="Select sprint"
+              searchPlaceholder="Find a sprint"
+              creatable
+            />
+          </Field>
+          <Field label="Automation Key" htmlFor="case-automation-key" wide>
             <Input
               id="case-automation-key"
               value={v.automation_key ?? ""}
               onChange={(e) => set("automation_key", e.target.value || null)}
-              placeholder="tests/test_auth.py::test_login"
+              placeholder="tests/test_auth.py::test_login — links JUnit results to this case"
               className="font-mono text-xs"
-              title="Links JUnit results to this case"
             />
-          </Prop>
-        </aside>
+          </Field>
+          <Field label="Other fields" wide>
+            <CustomFieldsEditor value={v.custom_fields} onChange={(f) => set("custom_fields", f)} known={knownFields} />
+          </Field>
+        </FormSection>
       </div>
 
       <div className="sticky bottom-0 flex items-center gap-2 border-t bg-background px-6 py-3">
@@ -614,30 +623,37 @@ function CaseForm({
   );
 }
 
-function Field({ label, htmlFor, children }: { label: string; htmlFor?: string; children: React.ReactNode }) {
+function Field({
+  label,
+  htmlFor,
+  required,
+  wide,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  required?: boolean;
+  /** Spans both columns inside a FormSection. */
+  wide?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="grid content-start gap-2">
-      <Label htmlFor={htmlFor}>{label}</Label>
-      {children}
-    </div>
-  );
-}
-
-function SideHeading({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <h3 className={cn("text-xs font-semibold tracking-wide text-muted-foreground uppercase", className)}>{children}</h3>
-  );
-}
-
-/** Label on the left, control on the right (stacked on narrow screens). */
-function Prop({ label, htmlFor, children }: { label: string; htmlFor?: string; children: React.ReactNode }) {
-  return (
-    <div className="grid items-center gap-1.5 sm:grid-cols-[6rem_minmax(0,1fr)] lg:grid-cols-1 xl:grid-cols-[5.5rem_minmax(0,1fr)]">
-      <Label htmlFor={htmlFor} className="text-muted-foreground">
+    <div className={cn("grid content-start gap-2", wide && "sm:col-span-2")}>
+      <Label htmlFor={htmlFor}>
         {label}
+        {required && <span className="text-destructive">*</span>}
       </Label>
       {children}
     </div>
+  );
+}
+
+function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="grid gap-4 border-t pt-5">
+      <h3 className="text-sm font-semibold">{title}</h3>
+      <div className="grid gap-4 sm:grid-cols-2">{children}</div>
+    </section>
   );
 }
 
