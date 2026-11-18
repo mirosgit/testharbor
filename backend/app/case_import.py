@@ -257,7 +257,8 @@ def parse_datetime(value: str) -> tuple[datetime | None, str | None]:
 
 
 def split_list(value: str) -> list[str]:
-    return [p.strip() for p in re.split(r"[,;\n]", value or "") if p.strip()]
+    """Multi-value cells: "Admin, Editor", "Admin; Editor", "Admin | Editor" or one per line."""
+    return [" ".join(p.split()) for p in re.split(r"[,;|\n]", value or "") if p.strip()]
 
 
 # --- CSV -------------------------------------------------------------------------------
