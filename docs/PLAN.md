@@ -262,7 +262,7 @@ An admin cannot demote or deactivate themselves. The system always keeps at leas
 - **Data migration.** Values that earlier imports kept as custom fields with these names are moved into the columns. Values that can't be mapped stay as custom fields.
 - **Import.** Header aliases for the new fields. Values are mapped with tolerance for typos ("Not Aplicable"). Dates are parsed as ISO or US `MM/DD/YYYY HH:MM[:SS]`; no timezone means UTC. Created At / Last Updated At set `created_at` / `updated_at`. In TestHarbor's own CSV export every extra column is selected by default.
 - **API.** Filters `state`, `automation_complexity`, `automation_progress`, `owner`, `sprint`, `role` (repeatable; owner/sprint/role values are not split on commas). `GET /api/projects/{id}/case-values` returns owners, sprints and roles for autocomplete.
-- **UI.** The case editor has State, Owner, Sprint, Automation progress, Automation complexity and Roles. The case card shows them, plus Created and Last updated (with who). The list flags non-active states. The "Fields" filter lists the built-in fields first, then custom fields.
+- **UI.** The case editor has State, Owner, Sprint, Automation progress, Automation complexity and Roles. The case card shows them, plus Created and Last updated (with who). The list shows every case's state in its own column. The "Fields" filter lists the built-in fields first, then custom fields.
 - **Dark theme.** It uses the existing `.dark` tokens. An inline `<head>` script applies the stored choice (`localStorage["testharbor-theme"]`: light, dark, or absent for system) before the first paint. The toggle is in the header and on the login/invite pages.
 
 ## Phase 11: project roles, bulk edit

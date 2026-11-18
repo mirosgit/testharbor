@@ -172,11 +172,13 @@ function CaseRow({
       <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 text-left">
         <span className="w-14 shrink-0 font-mono text-xs text-muted-foreground">{c.key}</span>
         <span className="min-w-0 flex-1 truncate">{c.title}</span>
-        {c.state !== "active" && <StateBadge state={c.state} className="shrink-0" />}
         <span className="hidden shrink-0 gap-1 lg:flex">
           {c.tags.slice(0, 3).map((t) => (
             <Tag key={t}>{t}</Tag>
           ))}
+        </span>
+        <span className="hidden w-28 shrink-0 md:block">
+          <StateBadge state={c.state} />
         </span>
         <span className="hidden w-24 shrink-0 text-xs text-muted-foreground md:block">{typeLabel[c.type]}</span>
         <PriorityBadge priority={c.priority} className="w-16 shrink-0 justify-center" />
