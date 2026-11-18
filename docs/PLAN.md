@@ -277,4 +277,4 @@ An admin cannot demote or deactivate themselves. The system always keeps at leas
   - All cases must be in one project.
   - Sets "last updated by".
   - UI: "Edit" in the selection bar opens a dialog where every field defaults to "Keep as is".
-
+- **Import target.** The default is now "Top level (folders from the file)": `Patients>Enrolled` becomes `Patients › Enrolled` at the top of the suite, not inside a wrapper section. "New section…" and existing sections are still offered.
