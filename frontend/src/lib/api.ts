@@ -1,4 +1,7 @@
 import type {
+  AutomationAgent,
+  AutomationJob,
+  AutomationJobDetail,
   CaseBulkUpdate,
   CaseSort,
   CaseValues,
@@ -102,6 +105,18 @@ export interface Paging {
 }
 
 export const api = {
+  startAutotests: (
+    projectId: number,
+    body: { run_id?: number; name?: string; case_ids?: number[]; only_failed?: boolean },
+  ) => request<AutomationJob>(`/api/projects/${projectId}/automation/jobs`, json("POST", body)),
+  autotestJobs: (projectId: number, runId?: number) =>
+    request<AutomationJob[]>(
+      `/api/projects/${projectId}/automation/jobs?${filterParams({ run_id: runId, limit: 10 })}`,
+    ),
+  autotestJob: (id: number) => request<AutomationJobDetail>(`/api/automation/jobs/${id}`),
+  cancelAutotests: (id: number) => request<AutomationJob>(`/api/automation/jobs/${id}/cancel`, json("POST")),
+  agents: (projectId: number) => request<AutomationAgent[]>(`/api/projects/${projectId}/automation/agents`),
+
   setupStatus: () => request<{ has_users: boolean }>("/api/auth/setup-status"),
   login: (email: string, password: string) =>
     request<Me>("/api/auth/login", json("POST", { email, password })),

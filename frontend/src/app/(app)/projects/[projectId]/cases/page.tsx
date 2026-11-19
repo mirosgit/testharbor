@@ -12,6 +12,7 @@ import {
 } from "@dnd-kit/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Bot,
   Download,
   FolderPlus,
   MoreHorizontal,
@@ -29,6 +30,7 @@ import { CaseTable, type CaseGroup } from "@/components/cases/case-table";
 import { emptyFilters, FilterBar, isFiltered, toCaseFilter, type Filters } from "@/components/cases/filter-bar";
 import { ImportDialog } from "@/components/cases/import-dialog";
 import { BulkEditDialog } from "@/components/cases/bulk-edit-dialog";
+import { RunAutotestsDialog } from "@/components/runs/autotests";
 import { MoveDialog } from "@/components/cases/move-dialog";
 import { Pager, SortMenu, type SortOption, type SortState } from "@/components/sort-menu";
 import { SectionTree } from "@/components/cases/section-tree";
@@ -66,6 +68,7 @@ type Dialog =
   | { kind: "move" }
   | { kind: "bulkDelete" }
   | { kind: "bulkEdit" }
+  | { kind: "autotests" }
   | null;
 
 const CASE_SORT_OPTIONS: SortOption<CaseSort>[] = [
@@ -482,6 +485,9 @@ function CasesWorkspace() {
                 <Button variant="outline" size="xs" onClick={() => setDialog({ kind: "bulkEdit" })}>
                   <Pencil /> Edit
                 </Button>
+                <Button variant="outline" size="xs" onClick={() => setDialog({ kind: "autotests" })}>
+                  <Bot /> Run autotests
+                </Button>
                 <Button variant="outline" size="xs" onClick={() => setDialog({ kind: "move" })}>
                   Move to…
                 </Button>
@@ -626,6 +632,12 @@ function CasesWorkspace() {
               refresh();
               if (r.section_id) setParams({ section: r.section_id, case: null });
             }}
+          />
+          <RunAutotestsDialog
+            open={dialog?.kind === "autotests"}
+            onOpenChange={(o) => !o && close()}
+            projectId={projectId}
+            target={{ kind: "new", caseIds: selectedIds }}
           />
           <BulkEditDialog
             open={dialog?.kind === "bulkEdit"}

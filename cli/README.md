@@ -54,3 +54,26 @@ examples.
 ```sh
 pip install -e ".[dev]" && pytest
 ```
+
+## `testcli agent`
+
+Runs tests when someone presses **Run autotests** in TestHarbor. Start it in the folder of the test
+project:
+
+```sh
+testcli agent --project 1 --report reports/results.json --report-url http://localhost:9323/index.html
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--command` | `npx playwright test` | How to run the tests. This command only ever comes from here, never from the server |
+| `--report` | `reports/results.json` | Report written by the command (Playwright JSON or JUnit XML) |
+| `--cwd` | `.` | Folder of the test project |
+| `--report-url` | | Where the HTML report is served; cases link to their test in it |
+| `--grep-arg` | `--grep` | Option for running only the selected cases (`""` always runs everything) |
+| `--name` | host name | Name shown in TestHarbor |
+| `--auto-create` | | Create cases for tests that match nothing |
+| `--once` | | Exit after one job |
+
+See [docs/integration.md](../docs/integration.md#run-autotests-from-testharbor).
+

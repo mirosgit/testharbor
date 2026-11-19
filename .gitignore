@@ -24,3 +24,6 @@ next-env.d.ts
 .vscode/
 .DS_Store
 backups/
+
+# Personal notes for Claude Code
+CLAUDE.local.md

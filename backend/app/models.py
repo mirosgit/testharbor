@@ -100,6 +100,14 @@ class RunSource(enum.StrEnum):
     ci = "ci"
 
 
+class JobStatus(enum.StrEnum):
+    queued = "queued"  # waiting for an agent
+    running = "running"  # an agent took it
+    finished = "finished"  # tests ran and the report was uploaded (tests may have failed)
+    error = "error"  # couldn't run, no report, or the agent went away
+    cancelled = "cancelled"
+
+
 class Role(enum.StrEnum):
     admin = "admin"
     tester = "tester"
@@ -338,6 +346,51 @@ class TestResult(Base):
     @property
     def recorded_by(self) -> str | None:
         return self.user.name if self.user else None
+
+
+class AutomationJob(Base):
+    """A request to run automated tests, executed by an agent (`testcli agent`) on the
+    machine that has the tests. Results go into `run_id`. The agent decides what command
+    runs; the job only says which cases (empty = all)."""
+
+    __tablename__ = "automation_jobs"
+    __table_args__ = (Index("ix_automation_jobs_project_status", "project_id", "status"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    run_id: Mapped[int] = mapped_column(ForeignKey("test_runs.id", ondelete="CASCADE"), index=True)
+    status: Mapped[JobStatus] = mapped_column(
+        _enum(JobStatus, "job_status"), default=JobStatus.queued, server_default=JobStatus.queued.value
+    )
+    case_ids: Mapped[list[int]] = mapped_column(ARRAY(Integer), default=list, server_default=text("'{}'::int[]"))
+    requested_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    agent: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)  # why it failed, or a summary
+    log: Mapped[str] = mapped_column(Text, default="", server_default="")  # tail of the output
+    created_at: Mapped[datetime] = _now()
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    requested_by: Mapped[User | None] = relationship(lazy="joined")
+
+    @property
+    def requested_by_name(self) -> str | None:
+        return self.requested_by.name if self.requested_by else None
+
+
+class AutomationAgent(Base):
+    """An agent seen polling a project for jobs (for the "agent online" indicator)."""
+
+    __tablename__ = "automation_agents"
+    __table_args__ = (UniqueConstraint("project_id", "name", name="uq_automation_agents_project_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(200))
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    last_seen_at: Mapped[datetime] = _now()
 
 
 class ApiToken(Base):
