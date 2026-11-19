@@ -50,9 +50,9 @@ export function AgentStatus({ projectId }: { projectId: number }) {
     `testcli agent --project ${projectId} --report-url http://localhost:9323/index.html`,
   ].join("\n");
   return (
-    <div className="grid gap-2 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40" data-testid="agent-status">
-      <p className="flex items-center gap-2 font-medium">
-        <span className="size-2 rounded-full bg-status-skipped" />
+    <div className="grid min-w-0 gap-2 rounded-md border border-amber-400 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40" data-testid="agent-status">
+      <p className="flex items-start gap-2 font-medium">
+        <span className="mt-1.5 size-2 shrink-0 rounded-full bg-status-skipped" />
         No agent is online. The job will wait until one starts.
       </p>
       <p className="text-xs text-muted-foreground">
@@ -63,8 +63,8 @@ export function AgentStatus({ projectId }: { projectId: number }) {
         </Link>
         .
       </p>
-      <div className="relative">
-        <pre className="overflow-x-auto rounded bg-background p-2 pr-9 font-mono text-[11px] leading-relaxed">{setup}</pre>
+      <div className="relative min-w-0">
+        <pre className="overflow-x-auto rounded border bg-background p-2 pr-9 font-mono text-[11px] leading-relaxed">{setup}</pre>
         <Button
           type="button"
           variant="ghost"
@@ -106,6 +106,7 @@ export function RunAutotestsDialog({
   const [scope, setScope] = useState<Scope>("all");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const runRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
     setScope(selectedCount ? "selected" : "all");
@@ -152,7 +153,14 @@ export function RunAutotestsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent
+        className="sm:max-w-lg"
+        onOpenAutoFocus={(e) => {
+          // Radix focuses (and selects) the first input; the primary action is the better start.
+          e.preventDefault();
+          runRef.current?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Run autotests</DialogTitle>
           <DialogDescription>
@@ -185,10 +193,12 @@ export function RunAutotestsDialog({
                     name="autotests-scope"
                     checked={scope === o.value}
                     onChange={() => setScope(o.value)}
-                    className="accent-primary"
+                    className="shrink-0 accent-primary"
                   />
-                  <span className="flex-1">{o.label}</span>
-                  <span className="text-xs text-muted-foreground">{o.hint}</span>
+                  <span className="grid min-w-0 flex-1">
+                    <span>{o.label}</span>
+                    {o.hint && <span className="text-xs text-muted-foreground">{o.hint}</span>}
+                  </span>
                 </label>
               ))}
           </fieldset>
@@ -197,7 +207,7 @@ export function RunAutotestsDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={start} disabled={busy}>
+          <Button ref={runRef} onClick={start} disabled={busy}>
             <Play /> {busy ? "Starting…" : "Run"}
           </Button>
         </DialogFooter>
