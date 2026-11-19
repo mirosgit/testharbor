@@ -90,3 +90,50 @@ test("Playwright JSON upload links each case to its test in the HTML report", as
     `${reportUrl}#?testId=abc123-def456`,
   );
 });
+
+test("Run autotests: an agent picks the job up and results land in the run", async ({ page }) => {
+  await login(page);
+  const { project, cases } = await seedProject(page.request, ["Pay by card", "Pay by invoice"]);
+  await page.goto(`/projects/${project.id}/runs`);
+  await page.getByRole("button", { name: "Run autotests" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByTestId("agent-status")).toContainText("No agent is online");
+  await dialog.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(page).toHaveURL(/\/runs\/\d+$/);
+  const runId = Number(page.url().split("/").pop());
+  await expect(page.getByTestId("autotests-status")).toHaveText("Autotests: Waiting for an agent");
+
+  // What `testcli agent` does: claim, stream output, upload the report into the run, finish.
+  const claim = await page.request.post(`/api/projects/${project.id}/automation/claim`, { data: { agent: "e2e-box" } });
+  const job = await claim.json();
+  expect(job.run_id).toBe(runId);
+  await page.request.post(`/api/automation/jobs/${job.id}/progress`, { data: { log: "Running 2 tests using 1 worker\n" } });
+  await expect(page.getByTestId("autotests-status")).toHaveText("Autotests: Running");
+  await expect(page.getByTestId("autotests-log")).toContainText("Running 2 tests");
+
+  const report = {
+    suites: [{ title: "pay.spec.ts", specs: cases.map((c, i) => ({
+      title: `${c.key} pays`, id: `id-${i}`, file: "pay.spec.ts", tags: [],
+      tests: [{ status: i ? "unexpected" : "expected", annotations: [],
+        results: [{ status: i ? "failed" : "passed", duration: 900, errors: i ? [{ message: "Invoice not sent" }] : [] }] }],
+    })) }],
+  };
+  await page.request.post(`/api/projects/${project.id}/runs/import-junit?run_id=${runId}`, {
+    multipart: { file: { name: "results.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(report)) } },
+  });
+  await page.request.post(`/api/automation/jobs/${job.id}/finish`, {
+    data: { status: "finished", exit_code: 1, message: "2 tests (1 failed, 1 passed)", log: "1 failed\n" },
+  });
+
+  await expect(page.getByTestId("autotests-status")).toHaveText("Autotests: Finished");
+  await expect(page.getByTestId("run-case-row").filter({ hasText: cases[1].key })).toContainText("Invoice not sent");
+
+  // Re-run only what failed, into the same run.
+  await page.getByRole("button", { name: "Run autotests" }).click();
+  await page.getByRole("dialog").getByText("Failed cases").click();
+  await page.getByRole("dialog").getByRole("button", { name: "Run", exact: true }).click();
+  await expect(page.getByTestId("autotests-status")).toHaveText("Autotests: Waiting for an agent");
+  await expect(page.getByTestId("autotests-panel")).toContainText("1 cases");
+  await page.getByTestId("autotests-panel").getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByTestId("autotests-status")).toHaveText("Autotests: Cancelled");
+});

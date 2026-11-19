@@ -5,11 +5,12 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from app.models import (
+    JobStatus,
     AutomationComplexity,
     AutomationProgress,
     AutomationStatus,
@@ -647,3 +648,59 @@ class TokenOut(ORM):
 
 class TokenCreated(TokenOut):
     token: str  # shown only once
+
+
+# --- Automation jobs (run tests from TestHarbor via an agent) ---------------------------
+
+
+class JobIn(BaseModel):
+    """Start automated tests. Without run_id a new CI run is created for the results."""
+
+    run_id: int | None = None
+    name: str | None = Field(default=None, max_length=300)  # new run's name
+    case_ids: list[int] = Field(default=[], max_length=5000)  # only these cases; empty = all tests
+    only_failed: bool = False  # with run_id: the run's failed cases
+
+
+class JobOut(ORM):
+    id: int
+    project_id: int
+    run_id: int
+    status: JobStatus
+    case_ids: list[int]
+    agent: str | None
+    exit_code: int | None
+    message: str | None
+    requested_by_name: str | None = None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class JobDetail(JobOut):
+    log: str
+
+
+class AgentClaim(BaseModel):
+    agent: str = Field(min_length=1, max_length=200)
+
+
+class JobProgress(BaseModel):
+    log: str = Field(default="", max_length=1_000_000)  # new output since the last call
+
+
+class JobFinish(JobProgress):
+    status: Literal["finished", "error"]
+    exit_code: int | None = None
+    message: str | None = Field(default=None, max_length=5000)
+
+
+class JobControl(BaseModel):
+    cancelled: bool  # the agent should stop the tests
+
+
+class AgentOut(BaseModel):
+    name: str
+    last_seen_at: datetime
+    online: bool
+

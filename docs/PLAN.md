@@ -294,3 +294,13 @@ An admin cannot demote or deactivate themselves. The system always keeps at leas
 - **UI.** The run header has a "Report" button. Each run row has an icon linking to the test's page. Results show "Open in report", and case history links too.
 - **One role, several spellings.** `role_key()` compares roles case-insensitively and treats a trailing abbreviation as part of the same role: "Super Admin (SA)" is "Super Admin". The abbreviation must start with the name's first letter and its letters must appear in the name in order, so "Admin (read-only)" stays its own role. When roles are written (case edit, bulk edit, import), `remember_roles` unifies the spellings in the project list and on every case of the project, preferring the spelling with the abbreviation (as BrowserStack exports it).
 
+## Phase 14: run autotests from TestHarbor
+
+- **Model (migration 0009).**
+  - `automation_jobs`: `run_id`, `status` (queued, running, finished, error, cancelled), `case_ids` (empty means all tests), agent, exit code, message, the tail of the log (512 KB), and timestamps including `heartbeat_at`.
+  - `automation_agents`: one row per project and agent name, with `last_seen_at`, for the "agent online" indicator.
+- **Flow.** A user starts a job; without `run_id` a new CI run is created, holding the selected cases. One job can be active per run. `only_failed` takes the run's failed cases. An agent polls `claim`, which atomically takes the oldest queued job (`FOR UPDATE SKIP LOCKED`) and records itself as seen. It posts output to `progress`; the answer says whether the job was cancelled. Finally it uploads the report with `run_id` (which now also fills in the run's branch, commit and build when they are empty) and calls `finish`. Running jobs with no heartbeat for 2 minutes become errors when jobs are next read.
+- **Security.** The server only sends case IDs. The command comes from the agent's command line. Selected cases become a `--grep` regex built from integers only, and the agent passes it as an argv element with no shell.
+- **Agent (`testcli agent`).** Uses only the standard library. Removes the old report before each run, so a stale report is never uploaded. Strips ANSI codes. Stops the tests when the job is cancelled in TestHarbor, and reports the job as interrupted on Ctrl+C or SIGTERM. Verified end to end with real Playwright tests in Docker.
+- **UI.** "Run autotests" on the runs page, in the case selection bar and on a run page. The dialog shows whether an agent is online and how to start one. The run page has a panel with status, elapsed time, live output and Cancel.
+
