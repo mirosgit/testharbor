@@ -49,6 +49,9 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
   - `testcli upload` CLI, which detects the branch, commit and build URL in CI.
   - Playwright's JSON report is accepted too: each case in the run links to its test in
     Playwright's HTML report.
+  - **Run autotests from TestHarbor**: all of them, selected cases or a run's failed cases.
+    `testcli agent` runs them on the machine with the tests, streams the output and uploads
+    the results into the run.
   - A pytest plugin with a `@pytest.mark.case("C142")` marker.
 - **Team accounts.** Testers are invited with one-time links. There are two roles, Admin and
   Tester. Passwords are hashed with argon2id, sign-ins are locked after repeated failures, and

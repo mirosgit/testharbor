@@ -153,6 +153,10 @@ async def import_junit(
         ensure_open(run)
         if report_url:
             run.report_url = report_url
+        # Runs started from TestHarbor learn the branch / commit / build from the upload.
+        run.branch = run.branch or branch or None
+        run.commit = run.commit or commit or None
+        run.build_url = run.build_url or build_url or None
     else:
         now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
         run = TestRun(

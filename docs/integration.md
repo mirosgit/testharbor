@@ -214,3 +214,41 @@ single final job with `testcli upload 'reports/**/*.xml'`, so they end up in one
 - **Duplicate cases after auto-create.** This happens when test names change, for example renamed
   tests or new parametrize ids. Either link those tests with a case ID, or update the case's
   automation key.
+
+## Run autotests from TestHarbor
+
+Start tests with a button in TestHarbor. They run on your own machine or server, where the tests live.
+
+1. On that machine, start the agent in the folder of the test project. Playwright must write a JSON report
+   (see above):
+
+   ```sh
+   export TESTHARBOR_URL=https://testharbor.example.com
+   export TESTHARBOR_TOKEN=th_...
+   testcli agent --project 1 --report reports/results.json --report-url http://localhost:9323/index.html
+   ```
+
+   The agent checks for work every 3 seconds. Leave it running (for example, as a systemd service, or in
+   `tmux` on a server).
+2. In TestHarbor, press **Run autotests**:
+   - on the **Test runs** page, for all tests;
+   - in the case list's selection bar, for the selected cases;
+   - on a run page, for all tests, the selected cases or the failed ones, into the same run.
+
+   The run page shows the job's status and the live output, and has a **Cancel** button.
+
+The agent:
+
+- runs `--command` (default `npx playwright test`) in `--cwd`;
+- when the job is for some cases only, appends `--grep` with a regex that matches their IDs in test
+  titles or tags (`C197 …`, `@C197`, `[C197]`);
+- uploads `--report` into the job's run, with branch and commit read from git.
+
+Output is streamed every 2 seconds. TestHarbor never sends a command, only case IDs, so the command
+that runs is always the one given on the agent's command line. A job whose agent stops responding
+for 2 minutes is marked as failed. Options: `--name` (shown in TestHarbor; defaults to the host name),
+`--auto-create`, `--grep-arg` (`""` always runs everything), `--poll`, `--once`.
+
+API: `POST /api/projects/{id}/automation/jobs` (`{case_ids, run_id, only_failed}`), `GET …/automation/jobs`,
+`POST /api/automation/jobs/{id}/cancel`. Agents use `…/automation/claim`, `…/progress` and `…/finish`.
+

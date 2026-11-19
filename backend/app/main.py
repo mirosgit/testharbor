@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI
 
 from app.auth import current_principal
 from app.config import get_settings
-from app.routers import auth, automation, cases, io, projects, runs, sections, suites, users
+from app.routers import auth, automation, cases, io, jobs, projects, runs, sections, suites, users
 
 log = logging.getLogger("uvicorn.error")
 
@@ -55,5 +55,5 @@ async def health() -> dict[str, str]:
 app.include_router(auth.router)
 app.include_router(users.router)  # mixes admin-only and public (accept invite) endpoints
 protected = [Depends(current_principal)]
-for module in (projects, suites, sections, cases, io, runs, automation):
+for module in (projects, suites, sections, cases, io, runs, automation, jobs):
     app.include_router(module.router, dependencies=protected)

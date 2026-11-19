@@ -1,11 +1,12 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Lock, PlayCircle, Plus, Upload } from "lucide-react";
+import { Bot, Lock, PlayCircle, Plus, Upload } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
+import { RunAutotestsDialog } from "@/components/runs/autotests";
 import { CreateRunDialog } from "@/components/runs/create-run-dialog";
 import { JUnitUploadDialog } from "@/components/runs/junit-upload-dialog";
 import { passRate, percentDone, RunProgress } from "@/components/runs/progress";
@@ -37,6 +38,7 @@ export default function RunsPage() {
   const [sort, setSort] = useState<SortState<RunSort>>({ sort: "created_at", order: "desc" });
   const [creating, setCreating] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [autotests, setAutotests] = useState(false);
   const closed = TABS.find((t) => t.key === tab)!.closed;
   const { data, isLoading } = useQuery({
     queryKey: ["runs", projectId, tab, page, sort],
@@ -77,6 +79,9 @@ export default function RunsPage() {
               }}
             />
           </div>
+          <Button size="sm" variant="outline" onClick={() => setAutotests(true)}>
+            <Bot /> Run autotests
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setUploading(true)}>
             <Upload /> Upload JUnit
           </Button>
@@ -145,6 +150,7 @@ export default function RunsPage() {
           </div>
         )}
       </div>
+      <RunAutotestsDialog open={autotests} onOpenChange={setAutotests} projectId={projectId} target={{ kind: "new" }} />
       <CreateRunDialog open={creating} onOpenChange={setCreating} projectId={projectId} />
       <JUnitUploadDialog open={uploading} onOpenChange={setUploading} projectId={projectId} />
     </main>
