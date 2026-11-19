@@ -1,8 +1,9 @@
-"""testcli: upload JUnit XML results to TestHarbor.
+"""testcli: upload test results to TestHarbor, or run tests on request from it.
 
     export TESTHARBOR_URL=https://testharbor.example.com
     export TESTHARBOR_TOKEN=th_...
     testcli upload junit.xml --project 1 --run-name "Nightly #123" --branch main --commit abc123
+    testcli agent --project 1 --command "npx playwright test" --report reports/results.json
 """
 
 from __future__ import annotations
@@ -143,6 +144,42 @@ def cmd_upload(args: argparse.Namespace) -> int:
     return 0
 
 
+def _connection(args: argparse.Namespace) -> tuple[str, str, int] | int:
+    url = args.url or os.environ.get("TESTHARBOR_URL", "")
+    token = args.token or os.environ.get("TESTHARBOR_TOKEN", "")
+    project = args.project or os.environ.get("TESTHARBOR_PROJECT", "")
+    missing = [n for n, v in (("TESTHARBOR_URL (or --url)", url), ("TESTHARBOR_TOKEN (or --token)", token),
+                              ("--project (or TESTHARBOR_PROJECT)", project)) if not v]
+    if missing:
+        print(f"error: missing {', '.join(missing)}", file=sys.stderr)
+        return EXIT_USAGE
+    try:
+        return url, token, int(project)
+    except ValueError:
+        print(f"error: --project must be a numeric project id, got {project!r}", file=sys.stderr)
+        return EXIT_USAGE
+
+
+def cmd_agent(args: argparse.Namespace) -> int:
+    from .agent import AgentConfig, run_agent
+
+    conn = _connection(args)
+    if isinstance(conn, int):
+        return conn
+    url, token, project = conn
+    cwd = Path(args.cwd).resolve()
+    if not cwd.is_dir():
+        print(f"error: --cwd {args.cwd} is not a directory", file=sys.stderr)
+        return EXIT_USAGE
+    cfg = AgentConfig(
+        url=url, token=token, project=project, command=args.command, report=Path(args.report), cwd=cwd,
+        report_url=args.report_url or os.environ.get("TESTHARBOR_REPORT_URL", ""),
+        auto_create=args.auto_create, grep_arg=args.grep_arg, poll=args.poll, once=args.once,
+        **({"name": args.name} if args.name else {}),
+    )
+    return run_agent(cfg)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="testcli", description="TestHarbor command-line client")
     parser.add_argument("--version", action="version", version=f"testcli {__version__}")
@@ -171,6 +208,30 @@ def build_parser() -> argparse.ArgumentParser:
     up.add_argument("--token", help="API token (or TESTHARBOR_TOKEN; prefer the env var)")
     up.add_argument("--json", action="store_true", help="print the raw JSON response")
     up.set_defaults(func=cmd_upload)
+
+    ag = sub.add_parser(
+        "agent", help="run tests when someone presses \"Run autotests\" in TestHarbor",
+        description="Wait for jobs from TestHarbor, run the tests with --command, upload --report into the "
+                    "job's run. The command is only ever taken from here, never from the server.")
+    ag.add_argument("--project", "-p", help="project id (or TESTHARBOR_PROJECT)")
+    ag.add_argument("--command", "-c", default="npx playwright test",
+                    help='how to run the tests (default: "npx playwright test")')
+    ag.add_argument("--report", "-r", default="reports/results.json",
+                    help="report the command writes: Playwright JSON or JUnit XML (default: reports/results.json)")
+    ag.add_argument("--cwd", default=".", help="directory of the test project (default: current)")
+    ag.add_argument("--report-url",
+                    help="where the HTML report is served, e.g. http://localhost:9323/index.html "
+                         "(or TESTHARBOR_REPORT_URL); cases link to their test in it")
+    ag.add_argument("--auto-create", action="store_true",
+                    help="create cases for tests that match nothing (in Unsorted › Automated)")
+    ag.add_argument("--grep-arg", default="--grep",
+                    help='option used to run only selected cases (default: --grep; "" to always run everything)')
+    ag.add_argument("--name", help="agent name shown in TestHarbor (default: host name)")
+    ag.add_argument("--poll", type=float, default=3.0, help="seconds between checks for new jobs")
+    ag.add_argument("--once", action="store_true", help="exit after one job")
+    ag.add_argument("--url", help="TestHarbor base URL (or TESTHARBOR_URL)")
+    ag.add_argument("--token", help="API token (or TESTHARBOR_TOKEN; prefer the env var)")
+    ag.set_defaults(func=cmd_agent)
     return parser
 
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, FileText, Lock, LockOpen, MoreHorizontal, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Bot, FileText, Lock, LockOpen, MoreHorizontal, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
@@ -12,6 +12,7 @@ import { ConfirmDialog, NameDialog } from "@/components/dialogs";
 import { Markdown } from "@/components/markdown";
 import { ExecuteSheet } from "@/components/runs/execute-sheet";
 import { passRate, percentDone, RunProgress, StatusCounts } from "@/components/runs/progress";
+import { AutotestsPanel, RunAutotestsDialog } from "@/components/runs/autotests";
 import { ReportUrlDialog } from "@/components/runs/report-url-dialog";
 import { CiMeta, ReportLink, RunSourceBadge, timeAgo } from "@/components/runs/run-meta";
 import { SortMenu, type SortOption, type SortState } from "@/components/sort-menu";
@@ -77,7 +78,7 @@ function RunView() {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortState<RunCaseSort>>({ sort: "manual", order: "asc" });
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [dialog, setDialog] = useState<"edit" | "delete" | "report" | null>(null);
+  const [dialog, setDialog] = useState<"edit" | "delete" | "report" | "autotests" | null>(null);
 
   const openCaseId = search.get("case") ? Number(search.get("case")) : null;
   const setOpenCase = (id: number | null) => {
@@ -198,6 +199,11 @@ function RunView() {
                   <CiMeta run={run} report={false} />
                 </div>
               </div>
+              {!run.closed && (
+                <Button variant="outline" size="sm" onClick={() => setDialog("autotests")}>
+                  <Bot /> Run autotests
+                </Button>
+              )}
               {run.report_url && (
                 <Button variant="outline" size="sm" asChild>
                   <a href={run.report_url} target="_blank" rel="noreferrer noopener">
@@ -264,6 +270,7 @@ function RunView() {
           </div>
         )}
 
+        <AutotestsPanel projectId={projectId} runId={runId} onDone={invalidate} />
         <div className="mb-3 flex items-center gap-2">
           <div className="relative w-64">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -419,6 +426,12 @@ function RunView() {
               await api.updateRun(runId, v);
               invalidate();
             }}
+          />
+          <RunAutotestsDialog
+            open={dialog === "autotests"}
+            onOpenChange={(o) => !o && setDialog(null)}
+            projectId={projectId}
+            target={{ kind: "run", runId, failedCount: run.stats.failed, selectedIds: [...selected] }}
           />
           <ReportUrlDialog
             open={dialog === "report"}

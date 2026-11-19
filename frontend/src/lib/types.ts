@@ -359,3 +359,34 @@ export interface InviteInfo {
   name: string | null;
   expires_at: string;
 }
+
+// --- Automation jobs (run tests from TestHarbor via `testcli agent`) ---
+
+export type JobStatus = "queued" | "running" | "finished" | "error" | "cancelled";
+
+export interface AutomationJob {
+  id: number;
+  project_id: number;
+  run_id: number;
+  status: JobStatus;
+  /** Only these cases; empty = all tests. */
+  case_ids: number[];
+  agent: string | null;
+  exit_code: number | null;
+  message: string | null;
+  requested_by_name: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface AutomationJobDetail extends AutomationJob {
+  log: string;
+}
+
+export interface AutomationAgent {
+  name: string;
+  last_seen_at: string;
+  online: boolean;
+}
+
