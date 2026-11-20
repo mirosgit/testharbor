@@ -130,3 +130,35 @@ test("sort and paginate the case list", async ({ page }) => {
   await expect(rows.first()).toContainText("Case 55");
   await page.getByLabel("Per page").selectOption("100");
 });
+
+test("Sync autotests: new tests become cases, a similar manual case is linked instead", async ({ page }) => {
+  await login(page);
+  const { project, cases } = await seedProject(page.request, ["Discount codes can be added"]);
+  const step = { action: "When I add a discount code", expected: 'Then the message "Discount Applied" is shown' };
+  const test = (key: string, title: string, path: string[]) => ({
+    key, title, path, description: "From the feature", preconditions: "- Given an order exists",
+    steps: [step], roles: ["Admin"], tags: ["regression"], case_ids: [],
+  });
+  const r = await page.request.put(`/api/projects/${project.id}/automation/catalog`, {
+    data: { agent: "qa-box", tests: [
+      test("t.py::test_add", "A discount code is added to an order", ["Checkout", "Discount codes"]),
+      test("t.py::test_filter", "Orders are filtered by customer", ["Checkout", "Filters"]),
+    ] },
+  });
+  expect(r.ok()).toBeTruthy();
+
+  await page.goto(`/projects/${project.id}/cases`);
+  await expect(page.getByTestId("catalog-strip")).toContainText("Autotests: 2 to sync");
+  await page.getByTestId("catalog-strip").click();
+  const dialog = page.getByTestId("catalog-dialog");
+  await dialog.getByLabel("What to do with A discount code is added to an order").click();
+  await page.getByRole("option", { name: new RegExp(`Link to ${cases[0].key}`) }).click();
+  await expect(dialog.getByTestId("catalog-summary")).toHaveText("create 1 · link 1");
+  await dialog.getByRole("button", { name: "Sync", exact: true }).click();
+  await expect(page.getByTestId("catalog-strip")).toContainText("Autotests in sync");
+
+  const linked = await (await page.request.get(`/api/cases/${cases[0].id}`)).json();
+  expect([linked.automation_key, linked.title]).toEqual(["t.py::test_add", "Discount codes can be added"]);
+  const suites = await (await page.request.get(`/api/projects/${project.id}/suites`)).json();
+  expect(suites.map((s: { name: string }) => s.name)).toContain("Autotests");
+});

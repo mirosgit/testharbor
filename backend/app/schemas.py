@@ -698,6 +698,77 @@ class JobIn(BaseModel):
     params: Annotated[dict[str, ParamValue], AfterValidator(check_params)] = {}  # run options of the agent
 
 
+class CatalogTest(BaseModel):
+    """One automated test as an agent reports it (`testcli agent --catalog`)."""
+
+    key: str = Field(min_length=1, max_length=1000)  # stable id; reports carry it as automation_key
+    title: str = Field(min_length=1, max_length=500)
+    path: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default=[], max_length=10)
+    description: str = Field(default="", max_length=50_000)
+    preconditions: str = Field(default="", max_length=50_000)
+    steps: list[Step] = Field(default=[], max_length=300)
+    roles: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default=[], max_length=200)
+    tags: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default=[], max_length=50)
+    case_ids: list[int] = Field(default=[], max_length=50)  # cases the test is tagged with
+
+
+def _unique_keys(tests: list[CatalogTest]) -> list[CatalogTest]:
+    seen: set[str] = set()
+    for t in tests:
+        if t.key in seen:
+            raise ValueError(f"Test key listed twice: {t.key}")
+        seen.add(t.key)
+    return tests
+
+
+class CatalogIn(BaseModel):
+    agent: str | None = Field(default=None, max_length=200)
+    tests: Annotated[list[CatalogTest], AfterValidator(_unique_keys)] = Field(max_length=20_000)
+
+
+class CatalogSuggestionOut(BaseModel):
+    case_id: int
+    key: str
+    title: str
+    path: str
+    score: float
+
+
+class CatalogItemOut(BaseModel):
+    action: Literal["create", "update", "link", "unchanged", "outdated"]
+    key: str
+    title: str
+    path: list[str]
+    case_id: int | None = None
+    case_key: str | None = None
+    case_title: str | None = None
+    changes: list[str] = []
+    note: str | None = None
+    suggestions: list[CatalogSuggestionOut] = []
+
+
+class CatalogPreview(BaseModel):
+    agent: str | None
+    uploaded_at: datetime
+    suite: str  # where new cases go
+    counts: dict[str, int]  # per action
+    items: list[CatalogItemOut]
+
+
+class CatalogApply(BaseModel):
+    uploaded_at: datetime  # the catalog the preview showed; 409 if a newer one arrived since
+    links: dict[str, int] = {}  # test key -> existing case to link instead of creating a case
+    skip: list[str] = Field(default=[], max_length=20_000)  # test keys to leave alone this time
+
+
+class CatalogApplied(BaseModel):
+    created: int
+    updated: int
+    linked: int
+    outdated: int
+    skipped: int
+
+
 class JobOut(ORM):
     id: int
     project_id: int
@@ -705,6 +776,9 @@ class JobOut(ORM):
     status: JobStatus
     case_ids: list[int]
     params: dict[str, ParamValue] = {}
+    # Only in the answer to an agent's claim: automation keys of the job's cases, so a runner can
+    # select tests by them (the ids are in case_ids).
+    automation_keys: list[str] = []
     agent: str | None
     exit_code: int | None
     message: str | None

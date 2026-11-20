@@ -143,7 +143,7 @@ export function RunAutotestsDialog({
     {
       value: "selected",
       label: "Selected cases",
-      hint: `${selectedCount} cases, matched by C-ID in test titles or tags`,
+      hint: `${selectedCount} cases, matched by their automation key or by C-ID in test titles or tags`,
       show: selectedCount > 0,
     },
     {

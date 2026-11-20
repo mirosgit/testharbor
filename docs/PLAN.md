@@ -318,3 +318,20 @@ Built to run test suites that need choices per run (an environment, roles, a sui
 - **Reports per job.** `--report` and `--report-url` may contain `{job_id}`, and `--report` may be a glob. Every matching file written during the job is uploaded as one import, for example a JUnit file per role in `reports/t{job_id}/*/junit.xml`. Files older than the job are ignored, so job ids repeating after a database reset never upload stale results.
 - **Config per result.** A `config` / `configuration` JUnit property, or the project of a multi-project Playwright JSON report, fills `test_results.config`. One scenario that ran as several roles is one case with one result per role, each labelled with its role. The worst status stays the current one.
 - **A test project's side** (example: a pytest-bdd suite with one process per role): tags such as `@case:C142` on scenarios become `case_id`, `automation_key` and `config` (role name) JUnit properties. Its runner reads `TESTHARBOR_CASE_IDS` / `TESTHARBOR_JOB_ID` and writes the options file, and a small script starts the agent.
+
+## Phase 16: catalog of automated tests, synced into cases
+
+Goal: run single automated tests from TestHarbor by selecting their cases, without hand-written case IDs in the tests and without duplicating the manual cases.
+
+- **Model (migration 0011).**
+  - `automation_catalogs`: one per project, the tests the agent last reported. Each test has `key`, `title`, `path`, `description`, `preconditions`, `steps`, `roles`, `tags` and `case_ids`.
+  - `test_cases.catalog_managed`: the case was created from the catalog and follows its test.
+- **Flow.** `testcli agent --catalog FILE` uploads the catalog when it starts (`PUT …/automation/catalog`), and nothing else changes then. The cases page shows "Autotests: N to sync". The preview (`GET …/automation/catalog`) and apply (`POST …/catalog/apply`, guarded by the catalog's `uploaded_at`) do the rest (`app/catalog.py`).
+- **Matching.** Case ids the test is tagged with come first, then the automation key, then a new case. A tagged case wins the key from another case; a catalog case that loses its key becomes Outdated.
+- **Who owns what.**
+  - Catalog cases: title, description, preconditions, steps, roles and tags follow the test on every sync. Priority, owner, sprint, custom fields and the section stay the person's.
+  - Manual cases linked to a test: only `automation_key` and `automation_status` are set.
+  - A catalog case whose test is gone becomes Outdated, and comes back to Active if the test returns. Nothing is deleted.
+- **New cases** go into the "Autotests" suite, in sections from the path (domain › feature). Type is smoke or regression from the tags. Roles take the project's spelling, as on import. Line breaks in steps become Markdown hard breaks.
+- **No duplicates.** For each new test, the preview suggests up to 3 manual cases with similar titles: word overlap plus sequence ratio, ≥ 0.45. The person picks per test: create a case, link to a suggestion, link to any case by ID, or skip. Only manual cases can be link targets.
+- **Running selected cases.** The claim answer now carries the automation keys of the job's cases. The agent writes `{"case_ids", "automation_keys"}` to a temp file named by `TESTHARBOR_SELECTION`. A custom runner selects its tests by key, or by a case tag. Outline rows share the scenario's key, so they become one case with a result per row and role.

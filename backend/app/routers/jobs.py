@@ -206,7 +206,12 @@ async def claim_job(project_id: int, body: AgentClaim, session: Session, princip
     job.started_at = job.heartbeat_at = _now()
     await session.commit()
     await session.refresh(job, ["requested_by"])
-    return JobOut.model_validate(job)
+    keys = list(await session.scalars(
+        select(TestCase.automation_key)
+        .where(TestCase.id.in_(job.case_ids), TestCase.automation_key.is_not(None))
+        .order_by(TestCase.id)
+    )) if job.case_ids else []
+    return JobOut.model_validate(job).model_copy(update={"automation_keys": keys})
 
 
 @router.post("/automation/jobs/{job_id}/progress", response_model=JobControl)

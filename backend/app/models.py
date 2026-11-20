@@ -258,6 +258,8 @@ class TestCase(Base):
     )
     # Display name of whoever last changed the case (or the value from an imported file).
     updated_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Created from the automated tests' catalog: title, steps, roles… follow the test on every sync.
+    catalog_managed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     # Free-form extra fields, in display order: [{"name": "Sprint", "value": "Sprint 125"}, ...]
     custom_fields: Mapped[list[dict[str, str]]] = mapped_column(
         JSONB, default=list, server_default=text("'[]'::jsonb")
@@ -400,6 +402,20 @@ class AutomationAgent(Base):
     options: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, default=list, server_default=text("'[]'::jsonb")
     )
+
+
+class AutomationCatalog(Base):
+    """The automated tests an agent last reported for a project (`testcli agent --catalog`).
+    A person syncs them into cases after a preview (app/catalog.py)."""
+
+    __tablename__ = "automation_catalogs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), unique=True)
+    agent: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    uploaded_at: Mapped[datetime] = _now()
+    # [{"key", "title", "path", "description", "preconditions", "steps", "roles", "tags", "case_ids"}]
+    tests: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
 
 
 class ApiToken(Base):

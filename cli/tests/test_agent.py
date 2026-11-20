@@ -50,6 +50,11 @@ class _Server(BaseHTTPRequestHandler):
             self._json({"run_id": 5, "run_name": "x", "total": 2, "matched": 2, "created": 0,
                         "unmatched": [], "statuses": {"passed": 1, "failed": 1}})
 
+    def do_PUT(self) -> None:  # noqa: N802
+        raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        type(self).calls.append((self.path, json.loads(raw)))
+        self._json({"counts": {"create": 2, "update": 0, "link": 0, "outdated": 0, "unchanged": 1}})
+
     def _json(self, payload: dict) -> None:
         data = json.dumps(payload).encode()
         self.send_response(200)
@@ -141,6 +146,7 @@ def test_cancel_from_testharbor_stops_the_tests(server: str, tmp_path: Path) -> 
 ROLE_RUNNER = r'''
 import json, os, pathlib
 env = {k: os.environ.get(k) for k in ("ENV", "ROLES", "HEADED", "TESTHARBOR_CASE_IDS", "TESTHARBOR_TOKEN")}
+env["selection"] = json.loads(pathlib.Path(os.environ["TESTHARBOR_SELECTION"]).read_text())
 pathlib.Path("env.json").write_text(json.dumps(env))
 for role in os.environ["ROLES"].split():
     folder = pathlib.Path(f"reports/t{os.environ['TESTHARBOR_JOB_ID']}/{role}")
@@ -194,7 +200,8 @@ def test_job_with_run_options_and_a_report_per_role(server: str, tmp_path: Path,
     import os
     os.utime(stale / "junit.xml", (1, 1))
     (tmp_path / "options.json").write_text(json.dumps(OPTIONS))
-    _Server.jobs = [{"id": 21, "run_id": 9, "case_ids": [142], "params": {"ENV": "qa", "ROLES": ["admin", "support_agent"]}}]
+    _Server.jobs = [{"id": 21, "run_id": 9, "case_ids": [142], "automation_keys": ["t.py::test_a"],
+                     "params": {"ENV": "qa", "ROLES": ["admin", "support_agent"]}}]
     cfg = AgentConfig(url=server, token="th_x", project=3, command=f'"{sys.executable}" "{script}"',
                       report=Path("reports/t{job_id}/*/junit.xml"), cwd=tmp_path, name="box", grep_arg="",
                       report_url="http://localhost:9323/t{job_id}/index.html", poll=0.05, once=True,
@@ -203,7 +210,7 @@ def test_job_with_run_options_and_a_report_per_role(server: str, tmp_path: Path,
 
     env = json.loads((tmp_path / "env.json").read_text())
     assert env == {"ENV": "qa", "ROLES": "admin support_agent", "HEADED": "0", "TESTHARBOR_CASE_IDS": "142",
-                   "TESTHARBOR_TOKEN": None}
+                   "TESTHARBOR_TOKEN": None, "selection": {"case_ids": [142], "automation_keys": ["t.py::test_a"]}}
     claim = next(b for p, b in _Server.calls if p.endswith("/automation/claim"))
     assert [o["name"] for o in claim["options"]] == ["ENV", "ROLES", "HEADED"]
     upload_path, body = next((p, b) for p, b in _Server.calls if "/runs/import-junit" in p)
@@ -224,3 +231,20 @@ def test_job_with_an_option_the_agent_does_not_offer(server: str, tmp_path: Path
     finish = next(b for p, b in _Server.calls if p.endswith("/finish"))
     assert finish["status"] == "error" and "'prod' is not offered by this agent" in finish["message"]
     assert not (tmp_path / "argv.json").exists()  # nothing ran
+
+
+def test_catalog_is_sent_when_the_agent_starts(server: str, tmp_path: Path) -> None:
+    (tmp_path / "catalog.json").write_text(json.dumps({"tests": [{"key": "a", "title": "A"}]}))
+    cfg = _cfg(server, tmp_path)
+    cfg.catalog = tmp_path / "catalog.json"
+    lines: list[str] = []
+    _Server.jobs = [{"id": 30, "run_id": 1, "case_ids": []}]
+    run_agent(cfg, log=lines.append)
+    path, body = _Server.calls[0]
+    assert path == "/api/projects/3/automation/catalog" and body == {"agent": "box", "tests": [{"key": "a", "title": "A"}]}
+    assert any("1 tests sent (2 create)" in line and "Sync autotests" in line for line in lines)
+
+    cfg.catalog = tmp_path / "missing.json"
+    lines.clear()
+    assert agent_mod.upload_catalog(cfg, agent_mod.Api(cfg), log=lines.append) is False
+    assert "catalog not sent" in lines[0]

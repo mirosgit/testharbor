@@ -30,6 +30,7 @@ import { CaseTable, type CaseGroup } from "@/components/cases/case-table";
 import { emptyFilters, FilterBar, isFiltered, toCaseFilter, type Filters } from "@/components/cases/filter-bar";
 import { ImportDialog } from "@/components/cases/import-dialog";
 import { BulkEditDialog } from "@/components/cases/bulk-edit-dialog";
+import { CatalogSyncStrip } from "@/components/cases/catalog-sync";
 import { RunAutotestsDialog } from "@/components/runs/autotests";
 import { MoveDialog } from "@/components/cases/move-dialog";
 import { Pager, SortMenu, type SortOption, type SortState } from "@/components/sort-menu";
@@ -417,6 +418,7 @@ function CasesWorkspace() {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+          <CatalogSyncStrip projectId={projectId} onApplied={refresh} />
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {sectionsQ.isLoading ? (
               <div className="grid gap-2">

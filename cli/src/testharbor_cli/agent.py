@@ -13,6 +13,11 @@ command a person may set and to which values (an environment, roles, a browser).
 chosen values; the agent checks each against its own file and sets the variables. Anything
 else is refused, so the server can only pick from what the agent offers.
 
+Catalog (`--catalog FILE`): the tests the agent can run, uploaded when it starts. People sync it
+into cases in TestHarbor after a preview. A job for selected cases then also gets their automation
+keys: the command finds both lists in the JSON file named by TESTHARBOR_SELECTION
+({"case_ids": [...], "automation_keys": [...]}).
+
 `--report` and `--report-url` may contain `{job_id}`; `--report` may be a glob
 (`reports/t{job_id}/*/junit.xml`): every matching file written during the job is uploaded.
 """
@@ -29,6 +34,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -68,6 +74,7 @@ class AgentConfig:
     poll: float = 3.0
     once: bool = False
     options: list[dict[str, Any]] = field(default_factory=list)  # from --options, see load_options()
+    catalog: Path | None = None  # --catalog: uploaded when the agent starts
 
 
 def case_grep(case_ids: list[int]) -> str:
@@ -271,12 +278,25 @@ def run_job(cfg: AgentConfig, api: Api, job: dict, log=print) -> str:  # type: i
 
     env = {k: v for k, v in os.environ.items() if k not in PRIVATE_ENV}
     env.update(options)
+    selection_dir = tempfile.TemporaryDirectory(prefix="testharbor-")
+    selection = Path(selection_dir.name) / "selection.json"
+    selection.write_text(json.dumps({"case_ids": case_ids, "automation_keys": job.get("automation_keys") or []}),
+                         encoding="utf-8")
     env.update({"TESTHARBOR_RUN_ID": str(run_id), "TESTHARBOR_JOB_ID": str(job_id),
-                "TESTHARBOR_CASE_IDS": ",".join(map(str, case_ids)), "FORCE_COLOR": "0",
-                "CI": os.environ.get("CI", "1")})
+                "TESTHARBOR_CASE_IDS": ",".join(map(str, case_ids)), "TESTHARBOR_SELECTION": str(selection),
+                "FORCE_COLOR": "0", "CI": os.environ.get("CI", "1")})
     if options:
         out.add("".join(f"{k}={shlex.quote(v)} " for k, v in options.items()))
     out.add(f"$ {shlex.join(args)}\n")
+    try:
+        return _execute(cfg, api, job, args, env, out, finish, pattern, report_url, started, log)
+    finally:
+        selection_dir.cleanup()
+
+
+def _execute(cfg: AgentConfig, api: Api, job: dict, args: list[str], env: dict[str, str], out: _Output,  # type: ignore[no-untyped-def]
+             finish, pattern: str, report_url: str, started: float, log) -> str:
+    job_id, run_id = job["id"], job["run_id"]
     try:
         proc = subprocess.Popen(args, cwd=cfg.cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, encoding="utf-8", errors="replace", bufsize=1)
@@ -342,6 +362,28 @@ def run_job(cfg: AgentConfig, api: Api, job: dict, log=print) -> str:  # type: i
     return finish("finished", summary, code)
 
 
+def upload_catalog(cfg: AgentConfig, api: Api, log=print) -> bool:  # type: ignore[no-untyped-def]
+    """Send the --catalog file to TestHarbor; nothing changes there until someone applies the sync."""
+    assert cfg.catalog is not None
+    try:
+        data = json.loads(cfg.catalog.read_text(encoding="utf-8"))
+        tests = data["tests"] if isinstance(data, dict) else data
+        _, preview = api.call("PUT", f"/api/projects/{cfg.project}/automation/catalog",
+                              {"agent": cfg.name, "tests": tests}, timeout=120)
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        log(f"  catalog not sent: cannot read {cfg.catalog} ({e})")
+        return False
+    except CliError as e:
+        log(f"  catalog not sent: {e}")
+        return False
+    counts = (preview or {}).get("counts", {})
+    todo = {k: v for k, v in counts.items() if k != "unchanged" and v}
+    summary = ", ".join(f"{v} {k}" for k, v in todo.items()) or "everything in sync"
+    log(f"  catalog: {len(tests)} tests sent ({summary})"
+        + (" — review it in TestHarbor: Test cases › Sync autotests" if todo else ""))
+    return True
+
+
 def run_agent(cfg: AgentConfig, log=print) -> int:  # type: ignore[no-untyped-def]
     api = Api(cfg)
     log(f"testcli agent \"{cfg.name}\" waiting for jobs of project {cfg.project} at {cfg.url}")
@@ -352,6 +394,8 @@ def run_agent(cfg: AgentConfig, log=print) -> int:  # type: ignore[no-untyped-de
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, on_sigterm)
+    if cfg.catalog is not None:
+        upload_catalog(cfg, api, log)
     failures = 0
     try:
         while True:

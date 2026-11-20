@@ -53,6 +53,9 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
     `testcli agent` runs them on the machine with the tests, streams the output and uploads
     the results into the run. The agent can offer run options (environment, roles, browser…) that are
     chosen in the dialog and reach its command as environment variables.
+  - The agent can send a **catalog of its tests**. After a preview they become cases (steps, roles and
+    tags filled in), or get linked to similar manual cases instead of duplicating them. Single tests
+    then run by selecting their cases.
   - Results carry their **configuration** (a role, a browser), so one case can show a result per
     role or browser in the same run.
   - A pytest plugin with a `@pytest.mark.case("C142")` marker.

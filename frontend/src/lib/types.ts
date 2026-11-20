@@ -408,3 +408,46 @@ export interface AutomationAgent {
   options: AgentOption[];
 }
 
+
+// --- Automated tests' catalog (synced into cases after a preview) ---
+
+export type CatalogAction = "create" | "update" | "link" | "unchanged" | "outdated";
+
+export interface CatalogSuggestion {
+  case_id: number;
+  key: string;
+  title: string;
+  path: string;
+  /** 0..1, how alike the titles read. */
+  score: number;
+}
+
+export interface CatalogItem {
+  action: CatalogAction;
+  /** The test's key; becomes the case's automation key. */
+  key: string;
+  title: string;
+  path: string[];
+  case_id: number | null;
+  case_key: string | null;
+  case_title: string | null;
+  changes: string[];
+  note: string | null;
+  suggestions: CatalogSuggestion[];
+}
+
+export interface CatalogPreview {
+  agent: string | null;
+  uploaded_at: string;
+  suite: string;
+  counts: Record<CatalogAction, number>;
+  items: CatalogItem[];
+}
+
+export interface CatalogApplied {
+  created: number;
+  updated: number;
+  linked: number;
+  outdated: number;
+  skipped: number;
+}

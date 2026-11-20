@@ -288,6 +288,38 @@ testcli agent --project 1 --command ./scripts/ci_run.sh --grep-arg "" --options 
   --report 'reports/t{job_id}/*/junit.xml' --report-url 'http://localhost:9323/t{job_id}/index.html'
 ```
 
+### Catalog of tests: cases for your autotests, and running single tests
+
+Start the agent with `--catalog FILE` to tell TestHarbor which tests exist. It is sent when the agent starts and
+changes nothing by itself:
+
+```json
+{"tests": [{
+  "key": "tests/test_checkout.py::test_a_discount_code_is_applied",
+  "title": "A discount code is applied to an order",
+  "path": ["Checkout", "Discount codes"],
+  "description": "…", "preconditions": "- Given an order exists",
+  "steps": [{"action": "When I apply a discount code", "expected": "Then the total is reduced"}],
+  "roles": ["Admin", "Customer"], "tags": ["regression"], "case_ids": []
+}]}
+```
+
+`key` must be what your reports carry as `automation_key` for that test.
+
+On the **Test cases** page, **Autotests: N to sync › Review** shows a preview:
+
+- **New tests** become cases in the **Autotests** suite, in sections from `path`, with the description,
+  preconditions, steps, roles and tags filled in. If a manual case with a similar title exists, it is suggested.
+  Link the test to it instead of creating a duplicate, or link it to any case by ID, or skip it for now.
+- **Linked tests** (tagged with `case_ids`, or linked earlier) only set the automation key and status of their
+  case. The case's content stays as written.
+- **Changed tests** update the cases created from the catalog: title, description, preconditions, steps, roles
+  and tags. Priority, owner, sprint, custom fields and the section are yours to change.
+- **Removed tests** mark their catalog cases Outdated. Nothing is deleted.
+
+After the sync, select cases and press **Run autotests**. The agent passes their ids and automation keys to the
+command in the JSON file named by `TESTHARBOR_SELECTION`: `{"case_ids": [...], "automation_keys": [...]}`.
+
 ### Results per configuration
 
 When the same test runs in several configurations (roles, browsers, Playwright projects), give each result a

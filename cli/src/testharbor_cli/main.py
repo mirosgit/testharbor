@@ -180,7 +180,7 @@ def cmd_agent(args: argparse.Namespace) -> int:
         return EXIT_USAGE
     cfg = AgentConfig(
         url=url, token=token, project=project, command=args.command, report=Path(args.report), cwd=cwd,
-        options=options,
+        options=options, catalog=Path(args.catalog) if args.catalog else None,
         report_url=args.report_url or os.environ.get("TESTHARBOR_REPORT_URL", ""),
         auto_create=args.auto_create, grep_arg=args.grep_arg, poll=args.poll, once=args.once,
         **({"name": args.name} if args.name else {}),
@@ -239,6 +239,9 @@ def build_parser() -> argparse.ArgumentParser:
     ag.add_argument("--options",
                     help="JSON file of run options a person may set in TestHarbor (environment, roles, browser…); "
                          "they reach the command as environment variables")
+    ag.add_argument("--catalog",
+                    help="JSON file listing the tests ({\"tests\": [{key, title, path, steps…}]}), sent when the "
+                         "agent starts; synced into cases in TestHarbor after a preview")
     ag.add_argument("--name", help="agent name shown in TestHarbor (default: host name)")
     ag.add_argument("--poll", type=float, default=3.0, help="seconds between checks for new jobs")
     ag.add_argument("--once", action="store_true", help="exit after one job")
