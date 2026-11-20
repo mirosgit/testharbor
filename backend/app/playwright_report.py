@@ -44,6 +44,8 @@ def _test_case(spec: dict[str, Any], test: dict[str, Any], titles: list[str], mu
         name = f"[{project}] {name}"
 
     props: dict[str, list[str]] = {"pw_test_id": [str(spec.get("id", ""))]}
+    if multi_project and project:
+        props["config"] = [project]
     for a in test.get("annotations") or []:
         if isinstance(a, dict) and a.get("type") and a.get("description") is not None:
             props.setdefault(str(a["type"]), []).append(str(a["description"]))

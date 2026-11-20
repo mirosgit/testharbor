@@ -5,11 +5,21 @@ project, runs the command given on its own command line (never one sent by the s
 streams the output back, and uploads the report into the job's run.
 
 For jobs limited to some cases, `--grep <regex>` is appended, matching the case ids
-(C197, @C197, [C197]) in test titles or tags: Playwright's syntax.
+(C197, @C197, [C197]) in test titles or tags: Playwright's syntax. The ids are also in
+TESTHARBOR_CASE_IDS, for commands that select tests themselves (`--grep-arg ""`).
+
+Run options (`--options FILE`): the agent tells TestHarbor which environment variables of its
+command a person may set and to which values (an environment, roles, a browser). A job carries the
+chosen values; the agent checks each against its own file and sets the variables. Anything
+else is refused, so the server can only pick from what the agent offers.
+
+`--report` and `--report-url` may contain `{job_id}`; `--report` may be a glob
+(`reports/t{job_id}/*/junit.xml`): every matching file written during the job is uploaded.
 """
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import re
@@ -25,12 +35,22 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from . import __version__
 from .main import CliError, upload
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 PROGRESS_EVERY = 2.0  # seconds between log uploads / cancel checks
+OPTION_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+OPTION_TYPES = ("choice", "multi", "bool")
+# Variables a run option may not set: they change how programs start, or belong to the agent.
+RESERVED_ENV = re.compile(
+    r"^(PATH|HOME|SHELL|IFS|BASH_ENV|CDPATH|LD_\w*|DYLD_\w*|PYTHON\w*|NODE_OPTIONS|NODE_PATH|"
+    r"JAVA_TOOL_OPTIONS|PERL5\w*|RUBYOPT|GIT_\w*|TESTHARBOR_\w*)$"
+)
+# Never handed to the tests: the agent's own credentials.
+PRIVATE_ENV = ("TESTHARBOR_TOKEN",)
 
 
 @dataclass
@@ -47,6 +67,7 @@ class AgentConfig:
     grep_arg: str = "--grep"
     poll: float = 3.0
     once: bool = False
+    options: list[dict[str, Any]] = field(default_factory=list)  # from --options, see load_options()
 
 
 def case_grep(case_ids: list[int]) -> str:
@@ -65,6 +86,105 @@ def build_command(cfg: AgentConfig, case_ids: list[int]) -> list[str]:
     if case_ids and cfg.grep_arg:
         args += [cfg.grep_arg, case_grep(case_ids)]
     return args
+
+
+def load_options(path: Path) -> list[dict[str, Any]]:
+    """Read and check an --options file: {"options": [{name, label, type, choices, default, hint}]}.
+
+    `type` is "choice" (one of `choices`), "multi" (any of them, passed space-separated) or
+    "bool" (passed as 1 / 0). A choice is {"value", "label"} or a plain string.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as e:
+        raise CliError(f"--options {path}: {e.strerror or e}") from e
+    except ValueError as e:
+        raise CliError(f"--options {path}: not valid JSON ({e})") from e
+    raw = data.get("options") if isinstance(data, dict) else data
+    if not isinstance(raw, list):
+        raise CliError(f'--options {path}: expected {{"options": [...]}}')
+    options: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise CliError(f"--options {path}: every option must be an object")
+        name, kind = item.get("name"), item.get("type")
+        if not isinstance(name, str) or not OPTION_NAME.match(name) or RESERVED_ENV.match(name):
+            raise CliError(f"--options {path}: {name!r} cannot be a run option (an UPPER_CASE variable name, "
+                           "not PATH, LD_*, PYTHON*, TESTHARBOR_* …)")
+        if kind not in OPTION_TYPES:
+            raise CliError(f"--options {path}: {name}: type must be one of {', '.join(OPTION_TYPES)}")
+        choices = []
+        for c in item.get("choices") or []:
+            value, label = (c, c) if isinstance(c, str) else (c.get("value"), c.get("label")) if isinstance(c, dict) else (None, None)
+            if not isinstance(value, str):
+                raise CliError(f"--options {path}: {name}: every choice needs a string value")
+            choices.append({"value": value, "label": label if isinstance(label, str) and label else value})
+        if kind != "bool" and not choices:
+            raise CliError(f"--options {path}: {name}: no choices")
+        option: dict[str, Any] = {"name": name, "label": str(item.get("label") or name), "type": kind,
+                                  "choices": choices}
+        if item.get("hint"):
+            option["hint"] = str(item["hint"])
+        default = item.get("default")
+        option["default"] = _check_value(option, default) if default is not None else _fallback(option)
+        options.append(option)
+    if len({o["name"] for o in options}) != len(options):
+        raise CliError(f"--options {path}: an option is listed twice")
+    return options
+
+
+def _fallback(option: dict[str, Any]) -> str | bool | list[str]:
+    return {"bool": False, "multi": []}.get(option["type"], option["choices"][0]["value"] if option["choices"] else "")
+
+
+def _check_value(option: dict[str, Any], value: object) -> str | bool | list[str]:
+    name, kind = option["name"], option["type"]
+    allowed = {c["value"] for c in option["choices"]}
+    if kind == "bool":
+        if not isinstance(value, bool):
+            raise CliError(f"Run option {name} must be true or false")
+        return value
+    if kind == "multi":
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise CliError(f"Run option {name} must be a list")
+        bad = [v for v in value if v not in allowed]
+        if bad:
+            raise CliError(f"Run option {name}: {bad[0]!r} is not offered by this agent")
+        return list(dict.fromkeys(value))
+    if not isinstance(value, str) or value not in allowed:
+        raise CliError(f"Run option {name}: {value!r} is not offered by this agent")
+    return value
+
+
+def option_env(options: list[dict[str, Any]], params: dict[str, Any]) -> dict[str, str]:
+    """The environment variables of a job: every offered option, set to the job's value or its default."""
+    offered = {o["name"] for o in options}
+    unknown = sorted(set(params) - offered)
+    if unknown:
+        raise CliError(f"Run option {unknown[0]} is not offered by this agent"
+                       + ("" if offered else " (it was started without --options)"))
+    env: dict[str, str] = {}
+    for o in options:
+        value = _check_value(o, params[o["name"]]) if o["name"] in params else o["default"]
+        env[o["name"]] = ("1" if value else "0") if isinstance(value, bool) else (
+            " ".join(value) if isinstance(value, list) else value)
+    return env
+
+
+def report_files(pattern: str, cwd: Path, since: float) -> list[Path]:
+    """The report(s) of a job: a path, or every file matching a glob that was written during the job."""
+    full = pattern if Path(pattern).is_absolute() else str(cwd / pattern)
+    if not glob.has_magic(full):
+        return [Path(full)] if Path(full).is_file() else []
+    found = []
+    for m in sorted(glob.glob(full, recursive=True)):
+        p = Path(m)
+        try:
+            if p.is_file() and p.stat().st_mtime >= since - 1:
+                found.append(p)
+        except OSError:
+            continue
+    return found
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -137,15 +257,25 @@ def run_job(cfg: AgentConfig, api: Api, job: dict, log=print) -> str:  # type: i
         log(f"  {'✔' if status == 'finished' else '✖'} {message}")
         return status
 
-    report = cfg.report if cfg.report.is_absolute() else cfg.cwd / cfg.report
+    pattern = str(cfg.report).replace("{job_id}", str(job_id))
+    report_url = cfg.report_url.replace("{job_id}", str(job_id))
+    started = time.time()
     try:
-        report.unlink(missing_ok=True)  # never upload a report left over from an earlier run
+        if not glob.has_magic(pattern):
+            # never upload a report left over from an earlier run
+            (Path(pattern) if Path(pattern).is_absolute() else cfg.cwd / pattern).unlink(missing_ok=True)
+        options = option_env(cfg.options, job.get("params") or {})
         args = build_command(cfg, case_ids)
     except (OSError, CliError) as e:
         return finish("error", f"Could not prepare the run: {e}")
 
-    env = {**os.environ, "TESTHARBOR_RUN_ID": str(run_id), "TESTHARBOR_JOB_ID": str(job_id),
-           "TESTHARBOR_CASE_IDS": ",".join(map(str, case_ids)), "FORCE_COLOR": "0", "CI": os.environ.get("CI", "1")}
+    env = {k: v for k, v in os.environ.items() if k not in PRIVATE_ENV}
+    env.update(options)
+    env.update({"TESTHARBOR_RUN_ID": str(run_id), "TESTHARBOR_JOB_ID": str(job_id),
+                "TESTHARBOR_CASE_IDS": ",".join(map(str, case_ids)), "FORCE_COLOR": "0",
+                "CI": os.environ.get("CI", "1")})
+    if options:
+        out.add("".join(f"{k}={shlex.quote(v)} " for k, v in options.items()))
     out.add(f"$ {shlex.join(args)}\n")
     try:
         proc = subprocess.Popen(args, cwd=cfg.cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -190,18 +320,19 @@ def run_job(cfg: AgentConfig, api: Api, job: dict, log=print) -> str:  # type: i
     if cancelled:
         return finish("error", "Cancelled", code)
 
-    if not report.is_file():
-        return finish("error", f"Tests exited with code {code} but no report was written to {cfg.report} "
-                               "(is the JSON reporter configured?)", code)
+    reports = report_files(pattern, cfg.cwd, started)
+    if not reports:
+        return finish("error", f"Tests exited with code {code} but no report was written to {pattern} "
+                               "(see the output: nothing selected to run, or no reporter configured)", code)
     params = {
         "run_id": str(run_id),
-        "report_url": cfg.report_url,
+        "report_url": report_url,
         "auto_create": "true" if cfg.auto_create else "",
         "branch": _git(cfg.cwd, "rev-parse", "--abbrev-ref", "HEAD"),
         "commit": _git(cfg.cwd, "rev-parse", "HEAD"),
     }
     try:
-        result = upload(cfg.url, cfg.token, cfg.project, [report], params)
+        result = upload(cfg.url, cfg.token, cfg.project, reports, params)
     except CliError as e:
         return finish("error", f"Upload failed: {e}", code)
     st = result.get("statuses", {})
@@ -215,6 +346,8 @@ def run_agent(cfg: AgentConfig, log=print) -> int:  # type: ignore[no-untyped-de
     api = Api(cfg)
     log(f"testcli agent \"{cfg.name}\" waiting for jobs of project {cfg.project} at {cfg.url}")
     log(f"  runs: {cfg.command}   in {cfg.cwd}   report: {cfg.report}")
+    if cfg.options:
+        log(f"  run options: {', '.join(o['name'] for o in cfg.options)}")
     def on_sigterm(*_: object) -> None:
         raise KeyboardInterrupt
 
@@ -223,7 +356,8 @@ def run_agent(cfg: AgentConfig, log=print) -> int:  # type: ignore[no-untyped-de
     try:
         while True:
             try:
-                code, job = api.call("POST", f"/api/projects/{cfg.project}/automation/claim", {"agent": cfg.name})
+                code, job = api.call("POST", f"/api/projects/{cfg.project}/automation/claim",
+                                     {"agent": cfg.name, "options": cfg.options})
                 failures = 0
             except CliError as e:
                 failures += 1

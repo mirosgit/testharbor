@@ -90,6 +90,7 @@ def _result_from_row(row, report_url: str | None) -> ResultOut | None:  # type: 
         error_message=row.error_message,
         stack_trace=row.stack_trace,
         recorded_by=getattr(row, "recorded_by", None),
+        config=row.config,
         report_link=resolve_report_link(report_url, row.report_link),
         created_at=row.created_at,
     )

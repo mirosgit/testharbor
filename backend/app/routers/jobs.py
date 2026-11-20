@@ -3,7 +3,8 @@
 A user starts a job (all tests, or selected cases); an agent (`testcli agent`) running on
 the machine that has the tests claims it, runs its locally configured command, streams the
 output here and uploads the report into the job's run. The server never sends commands:
-only case ids, which the agent turns into a `--grep`.
+only case ids, which the agent turns into a `--grep`, and values of the run options the agent
+itself offers (its `--options` file), which it checks and passes on as environment variables.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -116,7 +117,7 @@ async def start_job(project_id: int, body: JobIn, session: Session, principal: C
         await session.flush()
     await add_cases_to_run(session, run.id, case_ids)
 
-    job = AutomationJob(project_id=project_id, run_id=run.id, case_ids=case_ids,
+    job = AutomationJob(project_id=project_id, run_id=run.id, case_ids=case_ids, params=body.params,
                         requested_by_id=principal.user.id)
     session.add(job)
     await session.commit()
@@ -166,7 +167,8 @@ async def list_agents(project_id: int, session: Session) -> list[AgentOut]:
         .order_by(AutomationAgent.last_seen_at.desc())
     )
     now = _now()
-    return [AgentOut(name=a.name, last_seen_at=a.last_seen_at, online=now - a.last_seen_at < AGENT_ONLINE)
+    return [AgentOut(name=a.name, last_seen_at=a.last_seen_at, online=now - a.last_seen_at < AGENT_ONLINE,
+                     options=a.options or [])
             for a in rows]
 
 
@@ -179,12 +181,13 @@ async def claim_job(project_id: int, body: AgentClaim, session: Session, princip
     """Agents poll this: takes the oldest queued job of the project, or returns 204."""
     await get_or_404(session, Project, project_id)
     name = " ".join(body.agent.split())
+    options = [o.model_dump(exclude_none=True) for o in body.options]
     await session.execute(
         pg_insert(AutomationAgent)
-        .values(project_id=project_id, name=name, user_id=principal.user.id, last_seen_at=_now())
+        .values(project_id=project_id, name=name, user_id=principal.user.id, last_seen_at=_now(), options=options)
         .on_conflict_do_update(
             constraint="uq_automation_agents_project_name",
-            set_={"last_seen_at": _now(), "user_id": principal.user.id},
+            set_={"last_seen_at": _now(), "user_id": principal.user.id, "options": options},
         )
     )
     await _expire_stale(session, project_id)

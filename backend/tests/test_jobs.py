@@ -113,3 +113,36 @@ async def test_append_upload_fills_run_details(client: AsyncClient, make) -> Non
     assert r.status_code == 200, r.text
     run = (await client.get(f"/api/runs/{job['run_id']}")).json()
     assert (run["branch"], run["commit"], run["stats"]["passed"]) == ("main", "abc", 1)
+
+
+async def test_agent_options_and_job_params(client: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]
+    p, s, sec = await make.tree()
+    options = [
+        {"name": "ENV", "label": "Environment", "type": "choice", "default": "dev",
+         "choices": [{"value": "dev", "label": "dev"}, {"value": "qa", "label": "qa"}]},
+        {"name": "ROLES", "label": "Roles", "type": "multi", "default": [], "hint": "None = every role",
+         "choices": [{"value": "admin", "label": "Admin"}]},
+        {"name": "HEADED", "type": "bool", "default": False},
+    ]
+    claim = await client.post(f"/api/projects/{p['id']}/automation/claim", json={"agent": "box", "options": options})
+    assert claim.status_code == 204, claim.text
+    (agent,) = (await client.get(f"/api/projects/{p['id']}/automation/agents")).json()
+    assert agent["options"][0]["choices"][1] == {"value": "qa", "label": "qa"}
+    assert agent["options"][2] == {"name": "HEADED", "label": "", "type": "bool", "choices": [], "default": False,
+                                   "hint": None}
+
+    params = {"ENV": "qa", "ROLES": ["admin"], "HEADED": True}
+    job = (await client.post(f"/api/projects/{p['id']}/automation/jobs", json={"params": params})).json()
+    assert job["params"] == params
+    claimed = await client.post(f"/api/projects/{p['id']}/automation/claim", json={"agent": "box"})
+    assert claimed.json()["params"] == params
+    # An agent restarted without options offers none.
+    (agent,) = (await client.get(f"/api/projects/{p['id']}/automation/agents")).json()
+    assert agent["options"] == []
+
+    for bad in ({"env": "qa"}, {"ENV": {"x": 1}}, {"ENV": "x" * 201}, {"PATH; rm": "1"}):
+        r = await client.post(f"/api/projects/{p['id']}/automation/jobs", json={"params": bad})
+        assert r.status_code == 422, bad
+    bad_option = await client.post(f"/api/projects/{p['id']}/automation/claim",
+                                   json={"agent": "box", "options": [{"name": "env", "type": "choice"}]})
+    assert bad_option.status_code == 422

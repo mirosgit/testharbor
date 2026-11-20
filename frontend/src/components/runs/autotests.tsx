@@ -19,8 +19,17 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, ApiError } from "@/lib/api";
-import type { AutomationJob, JobStatus } from "@/lib/types";
+import type { AutomationJob, JobStatus, RunParams } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+import {
+  describeParams,
+  initialParams,
+  optionsAgent,
+  rememberedParams,
+  rememberParams,
+  RunOptionsForm,
+} from "./run-options";
 
 const ACTIVE: JobStatus[] = ["queued", "running"];
 export const isActive = (j?: AutomationJob | null) => !!j && ACTIVE.includes(j.status);
@@ -107,12 +116,27 @@ export function RunAutotestsDialog({
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const runRef = useRef<HTMLButtonElement>(null);
+  const { data: agents } = useQuery({
+    queryKey: ["agents", projectId],
+    queryFn: () => api.agents(projectId),
+    refetchInterval: 5000,
+    enabled: open,
+  });
+  const agent = optionsAgent(agents);
+  const runOptions = agent?.options ?? [];
+  const optionsKey = JSON.stringify(runOptions);
+  const [params, setParams] = useState<RunParams>({});
   useEffect(() => {
     if (!open) return;
     setScope(selectedCount ? "selected" : "all");
     setName(`Autotests ${new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+  // Start from the last run's choices; refill when the agent's options change (e.g. it was restarted).
+  useEffect(() => {
+    if (open) setParams(initialParams(runOptions, rememberedParams(projectId)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, optionsKey, projectId]);
 
   const options: { value: Scope; label: string; hint: string; show: boolean }[] = [
     { value: "all", label: "All autotests", hint: "Runs the whole test suite", show: true },
@@ -138,7 +162,9 @@ export function RunAutotestsDialog({
         ...(target.kind === "run" ? { run_id: target.runId } : { name: name.trim() || undefined }),
         case_ids: scope === "selected" ? caseIds : [],
         only_failed: scope === "failed",
+        params: runOptions.length ? params : {},
       });
+      if (runOptions.length) rememberParams(projectId, params);
       toast.success("Autotests queued");
       qc.invalidateQueries({ queryKey: ["autotest-jobs", projectId] });
       qc.invalidateQueries({ queryKey: ["runs", projectId] });
@@ -154,7 +180,7 @@ export function RunAutotestsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-lg"
+        className={cn("max-h-[calc(100dvh-2rem)] overflow-y-auto", runOptions.length ? "sm:max-w-xl" : "sm:max-w-lg")}
         onOpenAutoFocus={(e) => {
           // Radix focuses (and selects) the first input; the primary action is the better start.
           e.preventDefault();
@@ -202,6 +228,9 @@ export function RunAutotestsDialog({
                 </label>
               ))}
           </fieldset>
+          {runOptions.length > 0 && (
+            <RunOptionsForm options={runOptions} value={params} onChange={setParams} />
+          )}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -250,6 +279,8 @@ export function AutotestsPanel({
   });
   const latest = jobsQ.data?.[0];
   const active = isActive(latest);
+  // For the labels of the job's run options (falls back to the raw names).
+  const agentsQ = useQuery({ queryKey: ["agents", projectId], queryFn: () => api.agents(projectId), enabled: !!latest });
   const detailQ = useQuery({
     queryKey: ["autotest-job", latest?.id],
     queryFn: () => api.autotestJob(latest!.id),
@@ -319,6 +350,11 @@ export function AutotestsPanel({
           </Button>
         )}
       </div>
+      {Object.keys(job.params ?? {}).length > 0 && (
+        <p className="mt-1 text-xs break-words text-muted-foreground" data-testid="autotests-params">
+          {describeParams(job.params, optionsAgent(agentsQ.data)?.options)}
+        </p>
+      )}
       {job.message && (
         <p className={cn("mt-1 text-sm", job.status === "error" ? "text-status-failed" : "text-muted-foreground")}>
           {job.message}

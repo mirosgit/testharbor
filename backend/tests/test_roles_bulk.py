@@ -101,7 +101,7 @@ def test_role_key_abbreviations() -> None:
 
     assert role_key("Super Admin (SA)") == role_key("super admin") == "super admin"
     assert role_key("Product Manager (PdM)") == "product manager"
-    assert role_key("PA Specialist (PA)") == "pa specialist"
+    assert role_key("QA Lead (QA)") == "qa lead"
     assert role_key("Partner (Pa)") == "partner"
     # Not an abbreviation of the name: part of the role's name.
     assert role_key("Admin (read-only)") == "admin (read-only)"

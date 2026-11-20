@@ -134,3 +134,93 @@ def test_cancel_from_testharbor_stops_the_tests(server: str, tmp_path: Path) -> 
     run_agent(cfg, log=lambda *_: None)  # returns well before the 60 s sleep ends
     finish = next(b for p, b in _Server.calls if p.endswith("/finish"))
     assert (finish["status"], finish["message"]) == ("error", "Cancelled")
+
+
+# A stand-in for a runner with one process per role: reads its run options from the environment,
+# writes one JUnit file per role under reports/t<job id>/.
+ROLE_RUNNER = r'''
+import json, os, pathlib
+env = {k: os.environ.get(k) for k in ("ENV", "ROLES", "HEADED", "TESTHARBOR_CASE_IDS", "TESTHARBOR_TOKEN")}
+pathlib.Path("env.json").write_text(json.dumps(env))
+for role in os.environ["ROLES"].split():
+    folder = pathlib.Path(f"reports/t{os.environ['TESTHARBOR_JOB_ID']}/{role}")
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "junit.xml").write_text("<testsuites/>")
+'''
+
+OPTIONS = {"options": [
+    {"name": "ENV", "label": "Environment", "type": "choice", "choices": ["dev", "qa"], "default": "dev"},
+    {"name": "ROLES", "label": "Roles", "type": "multi",
+     "choices": [{"value": "admin", "label": "Admin"}, {"value": "support_agent", "label": "Support Agent"}]},
+    {"name": "HEADED", "type": "bool"},
+]}
+
+
+def test_load_options_normalizes_and_rejects(tmp_path: Path) -> None:
+    path = tmp_path / "options.json"
+    path.write_text(json.dumps(OPTIONS))
+    env, roles, headed = agent_mod.load_options(path)
+    assert env["choices"] == [{"value": "dev", "label": "dev"}, {"value": "qa", "label": "qa"}]
+    assert (roles["default"], headed["default"], headed["label"]) == ([], False, "HEADED")
+    for bad in ({"name": "PATH", "type": "choice", "choices": ["x"]}, {"name": "env", "type": "bool"},
+                {"name": "X", "type": "text"}, {"name": "X", "type": "choice"},
+                {"name": "X", "type": "choice", "choices": ["a"], "default": "b"}):
+        path.write_text(json.dumps({"options": [bad]}))
+        with pytest.raises(agent_mod.CliError):
+            agent_mod.load_options(path)
+
+
+def test_option_env_checks_values(tmp_path: Path) -> None:
+    path = tmp_path / "options.json"
+    path.write_text(json.dumps(OPTIONS))
+    options = agent_mod.load_options(path)
+    assert agent_mod.option_env(options, {}) == {"ENV": "dev", "ROLES": "", "HEADED": "0"}
+    assert agent_mod.option_env(options, {"ENV": "qa", "ROLES": ["support_agent", "admin"], "HEADED": True}) == {
+        "ENV": "qa", "ROLES": "support_agent admin", "HEADED": "1"}
+    for bad in ({"ENV": "prod"}, {"ROLES": ["root"]}, {"ROLES": "admin"}, {"HEADED": "1"}, {"PATH": "/tmp"}):
+        with pytest.raises(agent_mod.CliError):
+            agent_mod.option_env(options, bad)
+    with pytest.raises(agent_mod.CliError, match="without --options"):
+        agent_mod.option_env([], {"ENV": "qa"})
+
+
+def test_job_with_run_options_and_a_report_per_role(server: str, tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("TESTHARBOR_TOKEN", "th_secret")
+    script = tmp_path / "runner.py"
+    script.write_text(ROLE_RUNNER)
+    stale = tmp_path / "reports" / "t21" / "viewer"
+    stale.mkdir(parents=True)
+    (stale / "junit.xml").write_text("<testsuites/>")  # left from an earlier database: not uploaded
+    import os
+    os.utime(stale / "junit.xml", (1, 1))
+    (tmp_path / "options.json").write_text(json.dumps(OPTIONS))
+    _Server.jobs = [{"id": 21, "run_id": 9, "case_ids": [142], "params": {"ENV": "qa", "ROLES": ["admin", "support_agent"]}}]
+    cfg = AgentConfig(url=server, token="th_x", project=3, command=f'"{sys.executable}" "{script}"',
+                      report=Path("reports/t{job_id}/*/junit.xml"), cwd=tmp_path, name="box", grep_arg="",
+                      report_url="http://localhost:9323/t{job_id}/index.html", poll=0.05, once=True,
+                      options=agent_mod.load_options(tmp_path / "options.json"))
+    assert run_agent(cfg, log=lambda *_: None) == 0
+
+    env = json.loads((tmp_path / "env.json").read_text())
+    assert env == {"ENV": "qa", "ROLES": "admin support_agent", "HEADED": "0", "TESTHARBOR_CASE_IDS": "142",
+                   "TESTHARBOR_TOKEN": None}
+    claim = next(b for p, b in _Server.calls if p.endswith("/automation/claim"))
+    assert [o["name"] for o in claim["options"]] == ["ENV", "ROLES", "HEADED"]
+    upload_path, body = next((p, b) for p, b in _Server.calls if "/runs/import-junit" in p)
+    assert "report_url=http%3A%2F%2Flocalhost%3A9323%2Ft21%2Findex.html" in upload_path
+    assert body.count(b'filename="junit.xml"') == 2  # admin + support_agent, not the stale viewer file
+    finish = next(b for p, b in _Server.calls if p.endswith("/finish"))
+    assert finish["status"] == "finished"
+    logs = "".join(b["log"] for p, b in _Server.calls if p.endswith(("/progress", "/finish")))
+    assert "ENV=qa ROLES='admin support_agent' HEADED=0 $ " in logs
+
+
+def test_job_with_an_option_the_agent_does_not_offer(server: str, tmp_path: Path) -> None:
+    _Server.jobs = [{"id": 22, "run_id": 9, "case_ids": [], "params": {"ENV": "prod"}}]
+    cfg = _cfg(server, tmp_path)
+    (tmp_path / "options.json").write_text(json.dumps(OPTIONS))
+    cfg.options = agent_mod.load_options(tmp_path / "options.json")
+    run_agent(cfg, log=lambda *_: None)
+    finish = next(b for p, b in _Server.calls if p.endswith("/finish"))
+    assert finish["status"] == "error" and "'prod' is not offered by this agent" in finish["message"]
+    assert not (tmp_path / "argv.json").exists()  # nothing ran

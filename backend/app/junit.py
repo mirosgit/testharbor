@@ -29,6 +29,8 @@ KEY_PROPERTIES = {"automation_key", "testharbor_key", "nodeid"}
 # that is appended to the run's report URL as "#?testId=<id>".
 LINK_PROPERTIES = {"report_url", "report_link", "testharbor_link", "link", "url"}
 TEST_ID_PROPERTIES = {"pw_test_id", "playwright_test_id", "testid"}
+# The configuration a test ran in (a role, a browser, a Playwright project), shown with its result.
+CONFIG_PROPERTIES = {"config", "configuration", "testharbor_config"}
 
 MAX_TEXT = 64 * 1024  # cap stored message/trace size per result
 
@@ -107,6 +109,14 @@ class JUnitCase:
                 for v in values:
                     if re.fullmatch(r"[A-Za-z0-9_-]{1,200}", v.strip()):
                         return f"#?testId={v.strip()}"
+        return None
+
+    def config(self) -> str | None:
+        for prop, values in self.properties.items():
+            if prop.lower() in CONFIG_PROPERTIES:
+                for v in values:
+                    if v.strip():
+                        return v.strip()[:200]
         return None
 
     def duration_ms(self) -> int | None:

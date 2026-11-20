@@ -249,6 +249,52 @@ that runs is always the one given on the agent's command line. A job whose agent
 for 2 minutes is marked as failed. Options: `--name` (shown in TestHarbor; defaults to the host name),
 `--auto-create`, `--grep-arg` (`""` always runs everything), `--poll`, `--once`.
 
-API: `POST /api/projects/{id}/automation/jobs` (`{case_ids, run_id, only_failed}`), `GET …/automation/jobs`,
+### Run options
+
+An agent can let people choose how a run goes: an environment, roles, a suite, a browser. Describe the choices in
+a JSON file and start the agent with `--options FILE`. Each option is an environment variable of the
+command:
+
+```json
+{"options": [
+  {"name": "ENV", "label": "Environment", "type": "choice", "choices": ["dev", "qa"], "default": "dev"},
+  {"name": "ROLES", "label": "Roles", "type": "multi", "hint": "None = every role",
+   "choices": [{"value": "admin", "label": "Admin"}, {"value": "editor", "label": "Editor"}]},
+  {"name": "HEADED", "label": "Show the browser", "type": "bool"}
+]}
+```
+
+- `choice` takes one of `choices`. `multi` takes any of them, and the agent passes them space-separated.
+  `bool` is passed as `1` or `0`.
+- A choice is a string or `{"value", "label"}`. `default` is optional.
+- The **Run autotests** dialog shows these options and remembers the last choice.
+- The agent checks every value against its own file and sets every offered variable, using the default
+  when the job doesn't set one. TestHarbor can only pick among the values the agent offers. A job asking
+  for anything else fails without running.
+- Names must be UPPER_CASE environment variable names. Variables that change how programs start (`PATH`,
+  `LD_*`, `PYTHON*`, `BASH_ENV`, …) and `TESTHARBOR_*` are refused.
+
+The command always gets `TESTHARBOR_JOB_ID`, `TESTHARBOR_RUN_ID` and `TESTHARBOR_CASE_IDS` (comma-separated
+ids). It never gets `TESTHARBOR_TOKEN`. A command that selects tests by case id itself runs with
+`--grep-arg ""`, so nothing is appended.
+
+### Several reports per job
+
+`--report` may be a glob, and both `--report` and `--report-url` may contain `{job_id}`. All matching files
+written during the job are uploaded into its run, for example one JUnit file per parallel process:
+
+```sh
+testcli agent --project 1 --command ./scripts/ci_run.sh --grep-arg "" --options testharbor-options.json \
+  --report 'reports/t{job_id}/*/junit.xml' --report-url 'http://localhost:9323/t{job_id}/index.html'
+```
+
+### Results per configuration
+
+When the same test runs in several configurations (roles, browsers, Playwright projects), give each result a
+`config` JUnit property, for example `<property name="config" value="Admin"/>`. For a Playwright JSON
+report with several projects, the project is used. The case keeps one result per configuration, each
+labelled with its configuration, and its status in the run is the worst of them.
+
+API: `POST /api/projects/{id}/automation/jobs` (`{case_ids, run_id, only_failed, params}`), `GET …/automation/jobs`,
 `POST /api/automation/jobs/{id}/cancel`. Agents use `…/automation/claim`, `…/progress` and `…/finish`.
 

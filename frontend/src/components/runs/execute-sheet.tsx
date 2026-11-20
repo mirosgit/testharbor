@@ -217,6 +217,11 @@ export function ResultItem({ r }: { r: TestResult }) {
     <li className="rounded-md border p-3 text-sm">
       <div className="flex items-center gap-2">
         <StatusBadge status={r.status} />
+        {r.config && (
+          <span className="rounded border px-1.5 py-px text-xs text-muted-foreground" title="Ran as">
+            {r.config}
+          </span>
+        )}
         {r.duration_ms != null && (
           <span className="text-xs text-muted-foreground">{(r.duration_ms / 1000).toFixed(2)}s</span>
         )}

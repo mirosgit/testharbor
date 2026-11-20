@@ -247,6 +247,7 @@ async def import_junit(
                 stack_trace=t.details,
                 comment=t.display_name if len(results) > 1 else None,
                 report_link=t.report_link(),
+                config=t.config(),
             ), principal.user.id)
             statuses[t.status.value] += 1
 

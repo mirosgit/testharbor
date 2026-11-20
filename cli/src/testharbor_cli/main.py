@@ -171,8 +171,16 @@ def cmd_agent(args: argparse.Namespace) -> int:
     if not cwd.is_dir():
         print(f"error: --cwd {args.cwd} is not a directory", file=sys.stderr)
         return EXIT_USAGE
+    from .agent import load_options
+
+    try:
+        options = load_options(Path(args.options)) if args.options else []
+    except CliError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return EXIT_USAGE
     cfg = AgentConfig(
         url=url, token=token, project=project, command=args.command, report=Path(args.report), cwd=cwd,
+        options=options,
         report_url=args.report_url or os.environ.get("TESTHARBOR_REPORT_URL", ""),
         auto_create=args.auto_create, grep_arg=args.grep_arg, poll=args.poll, once=args.once,
         **({"name": args.name} if args.name else {}),
@@ -217,15 +225,20 @@ def build_parser() -> argparse.ArgumentParser:
     ag.add_argument("--command", "-c", default="npx playwright test",
                     help='how to run the tests (default: "npx playwright test")')
     ag.add_argument("--report", "-r", default="reports/results.json",
-                    help="report the command writes: Playwright JSON or JUnit XML (default: reports/results.json)")
+                    help="report the command writes: Playwright JSON or JUnit XML (default: reports/results.json); "
+                         "may be a glob and contain {job_id}, e.g. 'reports/t{job_id}/*/junit.xml'")
     ag.add_argument("--cwd", default=".", help="directory of the test project (default: current)")
     ag.add_argument("--report-url",
                     help="where the HTML report is served, e.g. http://localhost:9323/index.html "
-                         "(or TESTHARBOR_REPORT_URL); cases link to their test in it")
+                         "(or TESTHARBOR_REPORT_URL; may contain {job_id}); cases link to their test in it")
     ag.add_argument("--auto-create", action="store_true",
                     help="create cases for tests that match nothing (in Unsorted › Automated)")
     ag.add_argument("--grep-arg", default="--grep",
-                    help='option used to run only selected cases (default: --grep; "" to always run everything)')
+                    help='option used to run only selected cases (default: --grep; "" to append nothing, '
+                         'e.g. when the command reads TESTHARBOR_CASE_IDS itself)')
+    ag.add_argument("--options",
+                    help="JSON file of run options a person may set in TestHarbor (environment, roles, browser…); "
+                         "they reach the command as environment variables")
     ag.add_argument("--name", help="agent name shown in TestHarbor (default: host name)")
     ag.add_argument("--poll", type=float, default=3.0, help="seconds between checks for new jobs")
     ag.add_argument("--once", action="store_true", help="exit after one job")

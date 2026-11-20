@@ -304,3 +304,17 @@ An admin cannot demote or deactivate themselves. The system always keeps at leas
 - **Agent (`testcli agent`).** Uses only the standard library. Removes the old report before each run, so a stale report is never uploaded. Strips ANSI codes. Stops the tests when the job is cancelled in TestHarbor, and reports the job as interrupted on Ctrl+C or SIGTERM. Verified end to end with real Playwright tests in Docker.
 - **UI.** "Run autotests" on the runs page, in the case selection bar and on a run page. The dialog shows whether an agent is online and how to start one. The run page has a panel with status, elapsed time, live output and Cancel.
 
+
+## Phase 15: run options and results per configuration
+
+Built to run test suites that need choices per run (an environment, roles, a suite, a browser) from TestHarbor, without TestHarbor knowing about pytest or roles.
+
+- **Model (migration 0010).**
+  - `automation_agents.options` (JSONB): the run options the agent offers, refreshed on every `claim`.
+  - `automation_jobs.params` (JSONB): the values chosen for a job, e.g. `{"ENV": "qa", "ROLES": ["admin"], "HEADED": true}`.
+  - `test_results.config`: the configuration a result ran in (a role, a browser, a Playwright project).
+- **Run options.** `testcli agent --options FILE` reads `{"options": [{name, label, type, choices, default, hint}]}`. `type` is `choice`, `multi` or `bool`. `name` is an environment variable of the agent's command. It must be UPPER_CASE and cannot be `PATH`, `LD_*`, `PYTHON*`, `BASH_ENV`, `TESTHARBOR_*` and similar. The dialog shows the options of an online agent (else the last agent seen with options) and remembers the last choice per project in the browser.
+- **Security.** The server still never sends a command. It stores the values a person picked. The agent checks every value against its own file before running. An unknown option or a value outside its choices fails the job with nothing run. Then it sets one variable per offered option: a choice as is, a multi space-separated, a bool as `1` / `0`. `TESTHARBOR_TOKEN` is no longer passed to the tests.
+- **Reports per job.** `--report` and `--report-url` may contain `{job_id}`, and `--report` may be a glob. Every matching file written during the job is uploaded as one import, for example a JUnit file per role in `reports/t{job_id}/*/junit.xml`. Files older than the job are ignored, so job ids repeating after a database reset never upload stale results.
+- **Config per result.** A `config` / `configuration` JUnit property, or the project of a multi-project Playwright JSON report, fills `test_results.config`. One scenario that ran as several roles is one case with one result per role, each labelled with its role. The worst status stays the current one.
+- **A test project's side** (example: a pytest-bdd suite with one process per role): tags such as `@case:C142` on scenarios become `case_id`, `automation_key` and `config` (role name) JUnit properties. Its runner reads `TESTHARBOR_CASE_IDS` / `TESTHARBOR_JOB_ID` and writes the options file, and a small script starts the agent.

@@ -565,6 +565,7 @@ class ResultIn(BaseModel):
     error_message: str | None = None
     stack_trace: str | None = None
     report_link: ReportLink = None
+    config: str | None = Field(default=None, max_length=200)  # e.g. a role or a browser the test ran in
 
 
 class BulkResultsIn(BaseModel):
@@ -581,6 +582,7 @@ class ResultOut(ORM):
     error_message: str | None
     stack_trace: str | None
     recorded_by: str | None = None
+    config: str | None = None
     # Resolved against the run's report URL; null when there is nothing to open.
     report_link: str | None = None
     created_at: datetime
@@ -653,6 +655,39 @@ class TokenCreated(TokenOut):
 # --- Automation jobs (run tests from TestHarbor via an agent) ---------------------------
 
 
+OPTION_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+ParamValue = str | bool | list[str]
+
+
+def check_params(params: dict[str, ParamValue]) -> dict[str, ParamValue]:
+    """Run options are plain values: the agent checks them against its own list of options."""
+    if len(params) > 50:
+        raise ValueError("At most 50 run options")
+    for name, value in params.items():
+        if not OPTION_NAME.match(name):
+            raise ValueError(f"Invalid run option name {name!r} (expected e.g. ENV or ROLES)")
+        values = value if isinstance(value, list) else [] if isinstance(value, bool) else [value]
+        if len(values) > 500 or any(len(v) > 200 for v in values):
+            raise ValueError(f"Run option {name}: too many or too long values")
+    return params
+
+
+class AgentChoice(BaseModel):
+    value: str = Field(max_length=200)
+    label: str = Field(default="", max_length=200)
+
+
+class AgentOption(BaseModel):
+    """One run option an agent offers (from its --options file): an environment variable of its command."""
+
+    name: Annotated[str, Field(pattern=OPTION_NAME.pattern)]
+    label: str = Field(default="", max_length=100)
+    type: Literal["choice", "multi", "bool"]
+    choices: list[AgentChoice] = Field(default=[], max_length=500)
+    default: ParamValue | None = None
+    hint: str | None = Field(default=None, max_length=300)
+
+
 class JobIn(BaseModel):
     """Start automated tests. Without run_id a new CI run is created for the results."""
 
@@ -660,6 +695,7 @@ class JobIn(BaseModel):
     name: str | None = Field(default=None, max_length=300)  # new run's name
     case_ids: list[int] = Field(default=[], max_length=5000)  # only these cases; empty = all tests
     only_failed: bool = False  # with run_id: the run's failed cases
+    params: Annotated[dict[str, ParamValue], AfterValidator(check_params)] = {}  # run options of the agent
 
 
 class JobOut(ORM):
@@ -668,6 +704,7 @@ class JobOut(ORM):
     run_id: int
     status: JobStatus
     case_ids: list[int]
+    params: dict[str, ParamValue] = {}
     agent: str | None
     exit_code: int | None
     message: str | None
@@ -683,6 +720,7 @@ class JobDetail(JobOut):
 
 class AgentClaim(BaseModel):
     agent: str = Field(min_length=1, max_length=200)
+    options: list[AgentOption] = Field(default=[], max_length=50)  # what the agent can be asked to vary
 
 
 class JobProgress(BaseModel):
@@ -703,4 +741,5 @@ class AgentOut(BaseModel):
     name: str
     last_seen_at: datetime
     online: bool
+    options: list[AgentOption] = []
 

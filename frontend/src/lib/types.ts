@@ -251,6 +251,8 @@ export interface TestResult {
   error_message: string | null;
   stack_trace: string | null;
   recorded_by: string | null;
+  /** The configuration the test ran in, e.g. a role or a browser ("Super Admin"). */
+  config: string | null;
   created_at: string;
   /** This result's details in the run's HTML report. */
   report_link: string | null;
@@ -371,6 +373,8 @@ export interface AutomationJob {
   status: JobStatus;
   /** Only these cases; empty = all tests. */
   case_ids: number[];
+  /** Values of the agent's run options (environment variables of its command). */
+  params: RunParams;
   agent: string | null;
   exit_code: number | null;
   message: string | null;
@@ -384,9 +388,23 @@ export interface AutomationJobDetail extends AutomationJob {
   log: string;
 }
 
+export type RunParamValue = string | boolean | string[];
+export type RunParams = Record<string, RunParamValue>;
+
+/** A run option an agent offers (its --options file): an environment variable of its command. */
+export interface AgentOption {
+  name: string;
+  label: string;
+  type: "choice" | "multi" | "bool";
+  choices: { value: string; label: string }[];
+  default?: RunParamValue | null;
+  hint?: string | null;
+}
+
 export interface AutomationAgent {
   name: string;
   last_seen_at: string;
   online: boolean;
+  options: AgentOption[];
 }
 

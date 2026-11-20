@@ -51,7 +51,10 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
     Playwright's HTML report.
   - **Run autotests from TestHarbor**: all of them, selected cases or a run's failed cases.
     `testcli agent` runs them on the machine with the tests, streams the output and uploads
-    the results into the run.
+    the results into the run. The agent can offer run options (environment, roles, browser…) that are
+    chosen in the dialog and reach its command as environment variables.
+  - Results carry their **configuration** (a role, a browser), so one case can show a result per
+    role or browser in the same run.
   - A pytest plugin with a `@pytest.mark.case("C142")` marker.
 - **Team accounts.** Testers are invited with one-time links. There are two roles, Admin and
   Tester. Passwords are hashed with argon2id, sign-ins are locked after repeated failures, and

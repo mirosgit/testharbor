@@ -137,3 +137,58 @@ test("Run autotests: an agent picks the job up and results land in the run", asy
   await page.getByTestId("autotests-panel").getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByTestId("autotests-status")).toHaveText("Autotests: Cancelled");
 });
+
+test("Run autotests with the agent's run options; results per role", async ({ page }) => {
+  await login(page);
+  const { project, cases } = await seedProject(page.request, ["Discount code is added"]);
+  const options = [
+    { name: "ENV", label: "Environment", type: "choice", default: "dev", choices: [{ value: "dev", label: "dev" }, { value: "qa", label: "qa" }] },
+    { name: "ROLES", label: "Roles", type: "multi", default: [], hint: "None = every role",
+      choices: [{ value: "super_admin", label: "Super Admin" }, { value: "admin", label: "Admin" }, { value: "support_agent", label: "Support Agent" }] },
+    { name: "HEADED", label: "Show the browser", type: "bool", default: false },
+  ];
+  // An agent started with --options shows up (nothing queued yet).
+  await page.request.post(`/api/projects/${project.id}/automation/claim`, { data: { agent: "qa-box", options } });
+
+  await page.goto(`/projects/${project.id}/runs`);
+  await page.getByRole("button", { name: "Run autotests" }).click();
+  const dialog = page.getByRole("dialog");
+  const form = dialog.getByTestId("run-options");
+  await form.getByLabel("Environment").click();
+  await page.getByRole("option", { name: "qa" }).click();
+  await form.getByRole("button", { name: "Admin", exact: true }).click();
+  await form.getByRole("button", { name: "Super Admin" }).click();
+  await form.getByText("Show the browser").click();
+  await dialog.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(page).toHaveURL(/\/runs\/\d+$/);
+  const runId = Number(page.url().split("/").pop());
+  await expect(page.getByTestId("autotests-params")).toHaveText("Environment: qa · Roles: Super Admin, Admin · Show the browser");
+
+  const claim = await page.request.post(`/api/projects/${project.id}/automation/claim`, { data: { agent: "qa-box", options } });
+  const job = await claim.json();
+  expect(job.params).toEqual({ ENV: "qa", ROLES: ["super_admin", "admin"], HEADED: true });
+
+  // One JUnit file per role process, with the role as `config`.
+  const junit = (role: string, failed: boolean) =>
+    Buffer.from(
+      `<testsuites><testsuite name="pytest"><testcase classname="${role}.tests.test_checkout" name="test_discount_code_is_added" time="2.1">` +
+        `<properties><property name="case_id" value="${cases[0].key}"/><property name="config" value="${role}"/></properties>` +
+        (failed ? `<failure message="The message &quot;Discount Applied&quot; is not shown">trace</failure>` : "") +
+        `</testcase></testsuite></testsuites>`,
+    );
+  await page.request.post(`/api/projects/${project.id}/runs/import-junit?run_id=${runId}`, {
+    multipart: { file: { name: "junit.xml", mimeType: "application/xml", buffer: junit("Super Admin", false) } },
+  });
+  await page.request.post(`/api/projects/${project.id}/runs/import-junit?run_id=${runId}`, {
+    multipart: { file: { name: "junit.xml", mimeType: "application/xml", buffer: junit("Admin", true) } },
+  });
+  await page.request.post(`/api/automation/jobs/${job.id}/finish`, { data: { status: "finished", exit_code: 1 } });
+  await expect(page.getByTestId("autotests-status")).toHaveText("Autotests: Finished");
+
+  await page.getByTestId("run-case-row").filter({ hasText: cases[0].key }).click();
+  const results = page.getByTestId("run-results").getByRole("listitem");
+  await expect(results).toHaveCount(2);
+  await expect(results.first()).toContainText("Admin");
+  await expect(results.first()).toContainText("Discount Applied");
+  await expect(results.nth(1)).toContainText("Super Admin");
+});

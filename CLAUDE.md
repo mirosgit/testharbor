@@ -5,7 +5,7 @@ TestHarbor is a self-hosted, open-source test case management tool, in the spiri
 - One instance serves one company.
 - People work in it through the web UI. Automated tests report into it through a REST API, a CLI and an agent.
 
-Read this file first, then `docs/PLAN.md`. It holds the design decisions and notes from every phase so far, Phase 1 to 14.
+Read this file first, then `docs/PLAN.md`. It holds the design decisions and notes from every phase so far, Phase 1 to 15.
 
 ## Ground rules
 
@@ -75,7 +75,7 @@ Everything runs in Docker. Node and npm are not installed on the host.
   Review the result and add data steps if needed. Migrations apply on backend start. `tests/test_models.py` fails if models and migrations drift.
 - **Adding an npm package:** `docker run … node:22-alpine npm install <pkg>@<exact version>` in `frontend/`.
 
-At the time of writing, all tests pass: backend about 135, CLI 17, e2e 7.
+At the time of writing, all tests pass: backend about 137, CLI 21, e2e 8.
 
 ## Verification (visual)
 
@@ -99,7 +99,8 @@ Take screenshots with the e2e container:
 - **Imports.** CSV from TestHarbor, BrowserStack or TestRail (`case_import.py`), with a dry-run preview. JUnit XML and Playwright JSON go to `POST /api/projects/{id}/runs/import-junit`.
   - Playwright JSON carries the test IDs, which link each result to its test in the HTML report through the run's `report_url`.
 - **Run autotests.** A job is queued in TestHarbor, and `testcli agent` on the machine with the tests claims it, runs its local command (adding `--grep` for selected case IDs), streams the log and uploads the report.
-  - The server never sends commands, only case IDs. Keep it that way.
+  - The server never sends commands, only case IDs and values of the run options the agent itself offers (`--options`), which the agent checks and passes as environment variables. Keep it that way.
+  - Results have a `config` (a role, a browser, a Playwright project), from a `config` JUnit property.
 - **Auth.**
   - Roles are admin and tester. Passwords are hashed with argon2id.
   - Sessions are signed cookies, with a `session_version` for revocation. There is a lockout after failed logins.
