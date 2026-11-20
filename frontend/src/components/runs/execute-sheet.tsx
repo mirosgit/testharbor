@@ -37,7 +37,10 @@ export function ExecuteSheet({
 }) {
   return (
     <Sheet open={!!runCase} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full gap-0 overflow-y-auto sm:max-w-3xl" data-testid="execute-sheet">
+      <SheetContent
+        className="w-full gap-0 overflow-y-auto sm:max-w-3xl xl:max-w-[min(1200px,94vw)]"
+        data-testid="execute-sheet"
+      >
         {runCase && (
           <ExecuteBody
             key={runCase.case_id}
@@ -119,7 +122,10 @@ function ExecuteBody({
         </div>
       </SheetHeader>
 
-      <div className="grid min-w-0 gap-6 p-4 sm:p-6 [&>*]:min-w-0">
+      {/* Wide screens: the case on the left, adding and reading results on the right, all in view at once.
+          Narrow: the results come before the case's details. */}
+      <div className="grid min-w-0 gap-6 p-4 sm:p-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] xl:items-start [&>*]:min-w-0">
+        <div className="grid min-w-0 gap-6 [&>*]:min-w-0">
         {!readOnly && (
           <section className="grid gap-3 rounded-lg border bg-muted/30 p-4" aria-label="Add result">
             <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Result status">
@@ -162,6 +168,21 @@ function ExecuteBody({
           </section>
         )}
 
+        <Block title="Results in this run">
+          {isLoading ? (
+            <Skeleton className="h-12" />
+          ) : !results?.length ? (
+            <p className="text-sm text-muted-foreground">No results yet.</p>
+          ) : (
+            <ul className="grid gap-2" data-testid="run-results">
+              {results.map((r) => (
+                <ResultItem key={r.id} r={r} />
+              ))}
+            </ul>
+          )}
+        </Block>
+        </div>
+        <div className="grid min-w-0 gap-6 xl:order-first [&>*]:min-w-0">
         {!testCase ? (
           <Skeleton className="h-32" />
         ) : (
@@ -197,19 +218,7 @@ function ExecuteBody({
           </>
         )}
 
-        <Block title="Results in this run">
-          {isLoading ? (
-            <Skeleton className="h-12" />
-          ) : !results?.length ? (
-            <p className="text-sm text-muted-foreground">No results yet.</p>
-          ) : (
-            <ul className="grid gap-2" data-testid="run-results">
-              {results.map((r) => (
-                <ResultItem key={r.id} r={r} />
-              ))}
-            </ul>
-          )}
-        </Block>
+        </div>
       </div>
     </>
   );
