@@ -398,6 +398,8 @@ class AutomationAgent(Base):
     name: Mapped[str] = mapped_column(String(200))
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     last_seen_at: Mapped[datetime] = _now()
+    # Where it runs tests from ({"mode": "local", "folder", "branch", "commit", "dirty", "framework"}).
+    info: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     # The run options the agent offers (its --options file), shown in the "Run autotests" dialog.
     options: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, default=list, server_default=text("'[]'::jsonb")

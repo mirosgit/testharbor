@@ -23,6 +23,7 @@ from app.models import ResultStatus
 # `C142: login` match, but `ABC142` or `TC142` don't), and not followed by another digit.
 CASE_ID_IN_NAME = re.compile(r"(?<![A-Za-z0-9])C(\d+)(?!\d)")
 CASE_ID_VALUE = re.compile(r"^\s*[Cc]?(\d+)\s*$")
+_PARAMS = re.compile(r"\[[^\[\]]*\]$")
 CASE_ID_PROPERTIES = {"case_id", "case_ids", "caseid", "testharbor_case_id", "test_case_id"}
 KEY_PROPERTIES = {"automation_key", "testharbor_key", "nodeid"}
 # A link to this test's details in an HTML report: an absolute URL, or a Playwright test id
@@ -91,6 +92,8 @@ class JUnitCase:
                 cls = cn.rsplit(".", 1)[-1]
                 keys.append(f"{self.file}::{cls}::{name}")
         keys.append(name)
+        # A parametrized test (`test_x[a]`) also matches the case of the whole test (`…::test_x`).
+        keys += [_PARAMS.sub("", k) for k in keys if _PARAMS.search(k)]
         return list(dict.fromkeys(keys))
 
     def default_key(self) -> str:

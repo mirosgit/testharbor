@@ -100,6 +100,9 @@ export default function AutotestsPage() {
         <section className="grid min-w-0 content-start gap-3">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <h1 className="text-xl font-semibold">Autotests</h1>
+            <Link href={`/projects/${projectId}/autotests/connect`} className="order-last ml-auto text-sm text-primary hover:underline">
+              Connect autotests
+            </Link>
             {catalog && (
               <span className="text-sm text-muted-foreground">
                 {catalog.items.filter((i) => i.action !== "outdated").length} tests from {catalog.agent ?? "an agent"}

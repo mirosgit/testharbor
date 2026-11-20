@@ -218,6 +218,26 @@ single final job with `testcli upload 'reports/**/*.xml'`, so they end up in one
 ## Run autotests from TestHarbor
 
 Start tests with a button in TestHarbor. They run on your own machine or server, where the tests live.
+The quickest way: open **Autotests › Connect autotests** in your project, or:
+
+```sh
+uv tool install "git+https://github.com/mirosgit/testharbor.git#subdirectory=cli"
+cd your-tests
+testcli init --project 1 --url https://testharbor.example.com   # writes testharbor.toml (Playwright / pytest detected)
+echo "TESTHARBOR_TOKEN=th_..." >> .env                           # keep .env out of git
+testcli agent
+```
+
+`testharbor.toml` holds `url`, `project`, `framework` (`playwright`, `pytest` or `custom`), and optionally
+`command`, `report`, `select` (`grep`, `args`, `env` or `none`), `catalog` (`auto`, a JSON file, or none), `options`,
+`prepare` (a command run before options and catalog are read, at start and after every run), `env`, `name` and
+`poll`.
+
+Flags beat the environment, the environment beats the file, and the file beats the `TESTHARBOR_*` lines of `.env`.
+The token never goes into the file. With `framework = "playwright"` or `"pytest"` the agent lists the tests itself
+and runs selected ones with `--grep` of their titles, or with their node ids.
+
+The steps below describe the same agent configured with flags.
 
 1. On that machine, start the agent in the folder of the test project. Playwright must write a JSON report
    (see above):

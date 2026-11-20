@@ -40,10 +40,14 @@ def _test_case(spec: dict[str, Any], test: dict[str, Any], titles: list[str], mu
     last = results[-1] if results else {}
     name = " › ".join([*titles, spec.get("title", "")]).strip() or "(unnamed)"
     project = test.get("projectName") or ""
+    plain_name = name
     if multi_project and project:
         name = f"[{project}] {name}"
 
     props: dict[str, list[str]] = {"pw_test_id": [str(spec.get("id", ""))]}
+    if spec.get("file"):
+        # The same in every project, as `testcli` lists the test in its catalog.
+        props["automation_key"] = [f"{spec['file']}::{plain_name}"]
     if multi_project and project:
         props["config"] = [project]
     for a in test.get("annotations") or []:

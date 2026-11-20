@@ -5,7 +5,7 @@ TestHarbor is a self-hosted, open-source test case management tool, in the spiri
 - One instance serves one company.
 - People work in it through the web UI. Automated tests report into it through a REST API, a CLI and an agent.
 
-Read this file first, then `docs/PLAN.md`. It holds the design decisions and notes from every phase so far, Phase 1 to 16.
+Read this file first, then `docs/PLAN.md`. It holds the design decisions and notes from every phase so far, Phase 1 to 17.
 
 ## Ground rules
 
@@ -24,7 +24,7 @@ Read this file first, then `docs/PLAN.md`. It holds the design decisions and not
 | `backend/` | Python 3.12, FastAPI, async SQLAlchemy 2.0 (asyncpg), Alembic, Pydantic v2, Postgres 16 |
 | `frontend/` | Next.js 16 App Router, TypeScript, Tailwind v4, shadcn/ui (Radix), TanStack Query, dnd-kit, cmdk |
 | `frontend/e2e/` | Playwright tests (separate package, run in the `e2e` compose service) |
-| `cli/` | `testcli` (stdlib only): `upload` reports, `agent` runs tests on request, plus a pytest plugin (`@pytest.mark.case`) |
+| `cli/` | `testcli` (stdlib only): `upload` reports, `agent` runs tests on request (settings in `testharbor.toml`, `init` writes one; built-in catalogs in `collect.py`), plus a pytest plugin (`@pytest.mark.case`) |
 | `docs/` | `PLAN.md` (design and phase notes), `integration.md` (connecting autotests), `deployment.md`, `ci/` examples |
 | `deploy/` | Caddyfile (HTTPS in prod) and `backup.sh` |
 
@@ -75,7 +75,7 @@ Everything runs in Docker. Node and npm are not installed on the host.
   Review the result and add data steps if needed. Migrations apply on backend start. `tests/test_models.py` fails if models and migrations drift.
 - **Adding an npm package:** `docker run … node:22-alpine npm install <pkg>@<exact version>` in `frontend/`.
 
-At the time of writing, all tests pass: backend about 141, CLI 22, e2e 10.
+At the time of writing, all tests pass: backend about 143, CLI 29, e2e 11.
 
 ## Verification (visual)
 

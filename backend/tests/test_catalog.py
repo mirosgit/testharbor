@@ -138,3 +138,36 @@ async def test_claim_carries_automation_keys(client: AsyncClient, make) -> None:
     await client.post(f"/api/projects/{p['id']}/automation/jobs", json={"case_ids": [a["id"], b["id"]]})
     job = (await client.post(f"/api/projects/{p['id']}/automation/claim", json={"agent": "x"})).json()
     assert job["automation_keys"] == ["t.py::test_a"] and job["case_ids"] == [a["id"], b["id"]]
+
+
+async def test_parametrized_and_playwright_results_match_catalog_keys(client: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]
+    import json as _json
+
+    p, s, sec = await make.tree()
+    pay = await make.case(sec["id"], "Pay", automation_key="tests/test_shop.py::test_pay_by_card")
+    login = await make.case(sec["id"], "Login", automation_key="auth.spec.ts::Auth › logs in")
+    junit = (b'<testsuites><testsuite name="pytest">'
+             b'<testcase classname="tests.test_shop" name="test_pay_by_card[visa]" time="1"/>'
+             b'<testcase classname="tests.test_shop" name="test_pay_by_card[amex]" time="1"><failure message="x"/></testcase>'
+             b"</testsuite></testsuites>")
+    pw = {"config": {"projects": [{"name": "chromium"}, {"name": "firefox"}]}, "suites": [{"title": "auth.spec.ts", "file": "auth.spec.ts", "specs": [], "suites": [
+        {"title": "Auth", "specs": [{"title": "logs in", "id": "a1", "file": "auth.spec.ts", "tags": [], "tests": [
+            {"projectName": p_, "status": "expected", "annotations": [], "results": [{"status": "passed", "duration": 5}]}
+            for p_ in ("chromium", "firefox")]}]}]}]}
+    files = [("file", ("junit.xml", junit, "application/xml")),
+             ("file", ("results.json", _json.dumps(pw).encode(), "application/json"))]
+    body = (await client.post(f"/api/projects/{p['id']}/runs/import-junit", files=files)).json()
+    assert (body["matched"], body["unmatched"]) == (4, [])
+    statuses = {c["key"]: c["status"] for c in (await client.get(f"/api/runs/{body['run_id']}/cases")).json()}
+    assert statuses == {pay["key"]: "failed", login["key"]: "passed"}
+    hist = (await client.get(f"/api/runs/{body['run_id']}/cases/{login['key']}/results")).json()
+    assert sorted(h["config"] for h in hist) == ["chromium", "firefox"]
+
+
+async def test_agent_info_is_shown(client: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]
+    p, s, sec = await make.tree()
+    info = {"mode": "local", "folder": "~/qa", "branch": "feature-x", "commit": "abc1234", "dirty": True,
+            "framework": "pytest"}
+    await client.post(f"/api/projects/{p['id']}/automation/claim", json={"agent": "laptop", "info": info})
+    (agent,) = (await client.get(f"/api/projects/{p['id']}/automation/agents")).json()
+    assert agent["info"] == info

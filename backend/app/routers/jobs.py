@@ -168,7 +168,7 @@ async def list_agents(project_id: int, session: Session) -> list[AgentOut]:
     )
     now = _now()
     return [AgentOut(name=a.name, last_seen_at=a.last_seen_at, online=now - a.last_seen_at < AGENT_ONLINE,
-                     options=a.options or [])
+                     options=a.options or [], info=a.info or {})
             for a in rows]
 
 
@@ -182,12 +182,14 @@ async def claim_job(project_id: int, body: AgentClaim, session: Session, princip
     await get_or_404(session, Project, project_id)
     name = " ".join(body.agent.split())
     options = [o.model_dump(exclude_none=True) for o in body.options]
+    info = body.info.model_dump(exclude_none=True)
     await session.execute(
         pg_insert(AutomationAgent)
-        .values(project_id=project_id, name=name, user_id=principal.user.id, last_seen_at=_now(), options=options)
+        .values(project_id=project_id, name=name, user_id=principal.user.id, last_seen_at=_now(), options=options,
+                info=info)
         .on_conflict_do_update(
             constraint="uq_automation_agents_project_name",
-            set_={"last_seen_at": _now(), "user_id": principal.user.id, "options": options},
+            set_={"last_seen_at": _now(), "user_id": principal.user.id, "options": options, "info": info},
         )
     )
     await _expire_stale(session, project_id)

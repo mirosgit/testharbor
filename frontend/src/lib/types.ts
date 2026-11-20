@@ -401,11 +401,23 @@ export interface AgentOption {
   hint?: string | null;
 }
 
+/** Where an agent runs the tests from. */
+export interface AgentInfo {
+  mode?: "local" | "repo" | null;
+  folder?: string | null;
+  branch?: string | null;
+  commit?: string | null;
+  /** Uncommitted changes in a local folder. */
+  dirty?: boolean | null;
+  framework?: string | null;
+}
+
 export interface AutomationAgent {
   name: string;
   last_seen_at: string;
   online: boolean;
   options: AgentOption[];
+  info: AgentInfo;
 }
 
 

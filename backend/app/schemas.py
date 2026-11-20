@@ -792,9 +792,21 @@ class JobDetail(JobOut):
     log: str
 
 
+class AgentInfo(BaseModel):
+    """Where an agent runs the tests from, shown next to its name."""
+
+    mode: Literal["local", "repo"] | None = None
+    folder: str | None = Field(default=None, max_length=500)
+    branch: str | None = Field(default=None, max_length=300)
+    commit: str | None = Field(default=None, max_length=64)
+    dirty: bool | None = None  # uncommitted changes in a local folder
+    framework: str | None = Field(default=None, max_length=50)
+
+
 class AgentClaim(BaseModel):
     agent: str = Field(min_length=1, max_length=200)
     options: list[AgentOption] = Field(default=[], max_length=50)  # what the agent can be asked to vary
+    info: AgentInfo = Field(default_factory=lambda: AgentInfo())
 
 
 class JobProgress(BaseModel):
@@ -816,4 +828,5 @@ class AgentOut(BaseModel):
     last_seen_at: datetime
     online: bool
     options: list[AgentOption] = []
+    info: AgentInfo = Field(default_factory=lambda: AgentInfo())
 

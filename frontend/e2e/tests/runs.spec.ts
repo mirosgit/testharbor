@@ -223,3 +223,18 @@ test("Autotests page: pick single tests from the catalog and run them", async ({
   const job = await (await page.request.post(`/api/projects/${project.id}/automation/claim`, { data: { agent: "qa-box" } })).json();
   expect(job.automation_keys.sort()).toEqual(["t::add", "t::del"]);
 });
+
+test("Connect autotests: steps for the chosen framework, agent shows its folder and branch", async ({ page }) => {
+  await login(page);
+  const { project } = await seedProject(page.request, []);
+  await page.goto(`/projects/${project.id}/autotests`);
+  await page.getByRole("link", { name: "Connect autotests" }).first().click();
+  await expect(page).toHaveURL(/\/autotests\/connect$/);
+  await page.getByRole("radio", { name: /pytest/ }).click();
+  await expect(page.getByText(`testcli init --project ${project.id}`)).toBeVisible();
+  await expect(page.getByText('framework = "pytest"')).toBeVisible();
+  await page.request.post(`/api/projects/${project.id}/automation/claim`, {
+    data: { agent: "laptop", info: { mode: "local", folder: "~/qa", branch: "feature-x", dirty: true } },
+  });
+  await expect(page.getByTestId("agent-status")).toContainText("local · ~/qa · feature-x (uncommitted changes)");
+});

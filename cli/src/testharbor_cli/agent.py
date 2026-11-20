@@ -74,7 +74,15 @@ class AgentConfig:
     poll: float = 3.0
     once: bool = False
     options: list[dict[str, Any]] = field(default_factory=list)  # from --options, see load_options()
-    catalog: Path | None = None  # --catalog: uploaded when the agent starts
+    options_file: Path | None = None  # re-read after `prepare`
+    catalog: Path | str | None = None  # a JSON file, or "auto" (built in for playwright / pytest)
+    framework: str = "custom"  # playwright | pytest | custom (testharbor.toml)
+    # How selected tests reach the command: grep (--grep regex), args (node ids), env/none (only
+    # TESTHARBOR_SELECTION). Empty: grep when grep_arg is set, else none (older command lines).
+    select: str = ""
+    prepare: str = ""  # runs before options and catalog are (re)read
+    extra_env: dict[str, str] = field(default_factory=dict)
+    info: dict[str, Any] = field(default_factory=dict)  # shown in TestHarbor: folder, branch, changes
 
 
 def case_grep(case_ids: list[int]) -> str:
@@ -83,16 +91,44 @@ def case_grep(case_ids: list[int]) -> str:
     return f"(?<![A-Za-z0-9])C({ids})(?![0-9])"
 
 
-def build_command(cfg: AgentConfig, case_ids: list[int]) -> list[str]:
+def select_mode(cfg: AgentConfig) -> str:
+    return cfg.select or ("grep" if cfg.grep_arg else "none")
+
+
+def build_command(cfg: AgentConfig, case_ids: list[int], keys: list[str] | None = None) -> list[str]:
+    from .collect import grep_for_keys, pytest_args
+
     args = shlex.split(cfg.command, posix=os.name != "nt")
     if not args:
         raise CliError("--command is empty")
     exe = shutil.which(args[0], path=os.environ.get("PATH"))  # npx -> npx.cmd on Windows
     if exe:
         args[0] = exe
-    if case_ids and cfg.grep_arg:
-        args += [cfg.grep_arg, case_grep(case_ids)]
+    keys = keys or []
+    mode = select_mode(cfg)
+    if mode == "grep" and (case_ids or keys):
+        args += [cfg.grep_arg or "--grep", grep_for_keys(keys, case_ids) if keys else case_grep(case_ids)]
+    elif mode == "args" and case_ids:
+        if not keys:
+            raise CliError("none of the selected cases is linked to a test (no automation key): "
+                           "sync the autotests in TestHarbor first")
+        args += pytest_args(keys)
     return args
+
+
+def local_info(cfg: AgentConfig) -> dict[str, Any]:
+    """Where this agent runs tests from: shown next to its name in TestHarbor."""
+    home = str(Path.home())
+    folder = str(cfg.cwd)
+    if folder == home or folder.startswith(home + os.sep):
+        folder = "~" + folder[len(home):]
+    info: dict[str, Any] = {"mode": "local", "folder": folder, "framework": cfg.framework}
+    branch = _git(cfg.cwd, "rev-parse", "--abbrev-ref", "HEAD")
+    if branch:
+        info["branch"] = branch
+        info["commit"] = _git(cfg.cwd, "rev-parse", "--short", "HEAD")
+        info["dirty"] = bool(_git(cfg.cwd, "status", "--porcelain", "--untracked-files=no"))
+    return info
 
 
 def load_options(path: Path) -> list[dict[str, Any]]:
@@ -272,11 +308,12 @@ def run_job(cfg: AgentConfig, api: Api, job: dict, log=print) -> str:  # type: i
             # never upload a report left over from an earlier run
             (Path(pattern) if Path(pattern).is_absolute() else cfg.cwd / pattern).unlink(missing_ok=True)
         options = option_env(cfg.options, job.get("params") or {})
-        args = build_command(cfg, case_ids)
+        args = build_command(cfg, case_ids, job.get("automation_keys") or [])
     except (OSError, CliError) as e:
         return finish("error", f"Could not prepare the run: {e}")
 
     env = {k: v for k, v in os.environ.items() if k not in PRIVATE_ENV}
+    env.update(cfg.extra_env)
     env.update(options)
     selection_dir = tempfile.TemporaryDirectory(prefix="testharbor-")
     selection = Path(selection_dir.name) / "selection.json"
@@ -363,11 +400,17 @@ def _execute(cfg: AgentConfig, api: Api, job: dict, args: list[str], env: dict[s
 
 
 def upload_catalog(cfg: AgentConfig, api: Api, log=print) -> bool:  # type: ignore[no-untyped-def]
-    """Send the --catalog file to TestHarbor; nothing changes there until someone applies the sync."""
+    """Send the catalog to TestHarbor; nothing changes there until someone applies the sync."""
+    from .collect import build_catalog
+
     assert cfg.catalog is not None
     try:
-        data = json.loads(cfg.catalog.read_text(encoding="utf-8"))
-        tests = data["tests"] if isinstance(data, dict) else data
+        if cfg.catalog == "auto":
+            tests = build_catalog(cfg.framework, cfg.command, cfg.cwd)
+        else:
+            path = Path(cfg.catalog)
+            data = json.loads((path if path.is_absolute() else cfg.cwd / path).read_text(encoding="utf-8"))
+            tests = data["tests"] if isinstance(data, dict) else data
         _, preview = api.call("PUT", f"/api/projects/{cfg.project}/automation/catalog",
                               {"agent": cfg.name, "tests": tests}, timeout=120)
     except (OSError, ValueError, KeyError, TypeError) as e:
@@ -380,8 +423,28 @@ def upload_catalog(cfg: AgentConfig, api: Api, log=print) -> bool:  # type: igno
     todo = {k: v for k, v in counts.items() if k != "unchanged" and v}
     summary = ", ".join(f"{v} {k}" for k, v in todo.items()) or "everything in sync"
     log(f"  catalog: {len(tests)} tests sent ({summary})"
-        + (" — review it in TestHarbor: Test cases › Sync autotests" if todo else ""))
+        + (" — review it in TestHarbor: Autotests › Sync autotests" if todo else ""))
     return True
+
+
+def refresh(cfg: AgentConfig, api: Api, log=print) -> None:  # type: ignore[no-untyped-def]
+    """Re-read what may have changed in the folder: prepare, options, catalog, branch."""
+    from .config import run_prepare
+
+    if cfg.prepare:
+        try:
+            run_prepare(cfg.prepare, cfg.cwd, log)
+        except CliError as e:
+            log(f"  {e}")
+    if cfg.options_file is not None:
+        try:
+            path = cfg.options_file if cfg.options_file.is_absolute() else cfg.cwd / cfg.options_file
+            cfg.options = load_options(path)
+        except CliError as e:
+            log(f"  options not reloaded: {e}")
+    cfg.info = local_info(cfg)
+    if cfg.catalog is not None:
+        upload_catalog(cfg, api, log)
 
 
 def run_agent(cfg: AgentConfig, log=print) -> int:  # type: ignore[no-untyped-def]
@@ -394,14 +457,15 @@ def run_agent(cfg: AgentConfig, log=print) -> int:  # type: ignore[no-untyped-de
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, on_sigterm)
-    if cfg.catalog is not None:
-        upload_catalog(cfg, api, log)
+    refresh(cfg, api, log)
+    if cfg.info.get("branch"):
+        log(f"  branch {cfg.info['branch']}" + (" (with uncommitted changes)" if cfg.info.get("dirty") else ""))
     failures = 0
     try:
         while True:
             try:
                 code, job = api.call("POST", f"/api/projects/{cfg.project}/automation/claim",
-                                     {"agent": cfg.name, "options": cfg.options})
+                                     {"agent": cfg.name, "options": cfg.options, "info": cfg.info})
                 failures = 0
             except CliError as e:
                 failures += 1
@@ -415,6 +479,7 @@ def run_agent(cfg: AgentConfig, log=print) -> int:  # type: ignore[no-untyped-de
                 run_job(cfg, api, job, log)
                 if cfg.once:
                     return 0
+                refresh(cfg, api, log)  # the tests may have changed meanwhile (a local folder)
                 continue
             time.sleep(cfg.poll)
     except KeyboardInterrupt:

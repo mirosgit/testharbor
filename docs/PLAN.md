@@ -336,3 +336,20 @@ Goal: run single automated tests from TestHarbor by selecting their cases, witho
 - **No duplicates.** For each new test, the preview suggests up to 3 manual cases with similar titles: word overlap plus sequence ratio, ≥ 0.45. The person picks per test: create a case, link to a suggestion, link to any case by ID, or skip. Only manual cases can be link targets.
 - **Running selected cases.** The claim answer now carries the automation keys of the job's cases. The agent writes `{"case_ids", "automation_keys"}` to a temp file named by `TESTHARBOR_SELECTION`. A custom runner selects its tests by key, or by a case tag. Outline rows share the scenario's key, so they become one case with a result per row and role.
 - **Autotests page** (`/projects/{id}/autotests`, a tab next to Test runs). It holds the tree of the catalog's tests (path › test) with search and tri-state check boxes, the agent's status and run options, **Run selected** / **Run all**, and the recent jobs. Tests without a case are shown but can't be picked, and the page offers the sync, because their results would have nowhere to go. "Run autotests" on the runs page leads here; the dialog stays for selected cases on the cases page and for re-running a run's failed cases. The project header now fits phone width: the nav scrolls, and the project name is truncated.
+
+## Phase 17: anyone can connect: testharbor.toml, built-in catalogs, local agents
+
+Goal: any team connects its autotests in a few minutes. Two kinds of agents: local (a folder as it is) and, next, server (a git branch in a clean checkout).
+
+- **`testharbor.toml`** (or `.json`) next to the tests holds `url`, `project`, `framework`, `command`, `report`, `select`, `catalog`, `options`, `prepare`, `env`, `name`, `poll`. `testcli agent` finds it in the folder or a parent and needs no flags.
+  - Order of precedence: flags, then the environment, then the file, then the `TESTHARBOR_*` lines of the `.env` next to it, which are read as plain text and never executed.
+  - The token is never in the file. An unknown setting is an error.
+- **Presets per framework.**
+  - `playwright`: `npx playwright test --reporter=list,json,html`. The JSON report goes to `reports/results.json` (via `PLAYWRIGHT_JSON_OUTPUT_NAME`). The selection is a `--grep` of the selected tests' titles plus `C<id>` tags. The catalog comes from `--list --reporter=json`.
+  - `pytest`: `--junitxml=reports/junit.xml`. The selection is node ids as arguments. The catalog comes from `--collect-only -q`, one test per node id without parameters, with a title from the function name.
+  - `custom`: everything from the file. The selection is only the `TESTHARBOR_SELECTION` file.
+- **Keys line up with reports.** The Playwright JSON import sets `automation_key` = `<file>::<describe › title>`, the same in every project, so all projects of a test land in one case with a result per project. JUnit keys of parametrized tests also match without the `[...]` part.
+- **`testcli init`** detects Playwright or pytest (and uv / poetry for pytest), writes `testharbor.toml`, and warns if `.env` is not git-ignored.
+- **`prepare`** runs at start and after every job, then options and catalog are re-read and sent, so changed tests show up without restarting the agent.
+- **Agent info (migration 0012).** `automation_agents.info` holds the mode, folder (`~`-shortened), branch, short commit, uncommitted changes and framework, shown in the agent status.
+- **UI.** Autotests › **Connect autotests** walks through install, token, `testcli init`, `.env` and `testcli agent` for the chosen framework, with the formats of the catalog and the selection for custom runners. An empty Autotests page leads there.

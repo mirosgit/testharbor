@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronRight, Search } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { CatalogSyncDialog, useCatalog } from "@/components/cases/catalog-sync";
@@ -76,9 +77,12 @@ export function TestPicker({
   if (isLoading) return <p className="text-sm text-muted-foreground">Loading the tests…</p>;
   if (!catalog)
     return (
-      <p className="rounded-md border p-3 text-sm text-muted-foreground">
-        No list of tests yet. Start the agent with <code>--catalog</code>.
-      </p>
+      <div className="grid justify-items-start gap-2 rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+        <p>No tests yet. They show up here once an agent runs in the folder with your tests.</p>
+        <Button asChild size="sm">
+          <Link href={`/projects/${projectId}/autotests/connect`}>Connect autotests</Link>
+        </Button>
+      </div>
     );
 
   const set = (tests: CatalogItem[], on: boolean) => {
