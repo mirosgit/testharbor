@@ -69,6 +69,11 @@ services:
       TESTHARBOR_GIT_TOKEN: ${RUNNER_GIT_TOKEN:-}
       TESTHARBOR_AGENT_NAME: ${RUNNER_NAME:-server}
       TESTHARBOR_WORKDIR: /work
+      # Where people open the runs' HTML reports (served by the runner on port 9323).
+      TESTHARBOR_REPORTS_URL: ${RUNNER_REPORTS_URL:-http://localhost:9323}
+    ports:
+      # Reports hold traces with the tests' session tokens: local only unless RUNNER_REPORTS_BIND says otherwise.
+      - "${RUNNER_REPORTS_BIND:-127.0.0.1}:${RUNNER_REPORTS_PORT:-9323}:9323"
     volumes:
       - runner-work:/work
       - runner-cache:/root/.cache

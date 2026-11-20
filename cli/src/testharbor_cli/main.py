@@ -205,6 +205,7 @@ def cmd_repo_agent(args: argparse.Namespace) -> int:
         secret_files=Path(sf) if (sf := args.secret_files or env("TESTHARBOR_SECRET_FILES")) else None,
         branch=args.branch or env("TESTHARBOR_BRANCH"),
         subdir=args.repo_path or env("TESTHARBOR_REPO_PATH"), poll=args.poll or 3.0, once=args.once,
+        reports_url=env("TESTHARBOR_REPORTS_URL"), reports_port=int(env("TESTHARBOR_REPORTS_PORT") or 9323),
     ))
 
 
@@ -266,6 +267,7 @@ def cmd_agent(args: argparse.Namespace) -> int:
         framework=str(conf.get("framework", "custom")), select=select, prepare=str(conf.get("prepare", "")),
         extra_env=dict(conf.get("env", {})),
         report_url=str(setting(args.report_url, "report_url", "TESTHARBOR_REPORT_URL", "")),
+        report_html=str(conf.get("report_html", "")), report_port=int(conf.get("report_port", 9323)),
         auto_create=bool(args.auto_create or conf.get("auto_create")),
         grep_arg=str(conf.get("grep_arg", legacy_grep)) if args.grep_arg is None else args.grep_arg,
         poll=float(args.poll or conf.get("poll") or 3.0), once=args.once,

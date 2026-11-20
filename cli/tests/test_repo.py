@@ -34,10 +34,20 @@ def make_origin(tmp: Path) -> Path:
             assert "APP_PASSWORD=s3cret" in pathlib.Path(".env").read_text()
             assert pathlib.Path("config/creds.ini").read_text() == "key=1"
     """))
+    (qa / "conftest.py").write_text(textwrap.dedent("""\
+        import os, pathlib
+
+        def pytest_sessionfinish(session):
+            if os.environ.get("MAKE_HTML"):
+                pathlib.Path("reports/html").mkdir(parents=True, exist_ok=True)
+                pathlib.Path("reports/html/index.html").write_text("html")
+    """))
     (qa / "testharbor.json").write_text(json.dumps({
         "framework": "pytest",
         "command": f"{sys.executable} -m pytest -p no:cacheprovider --junitxml=reports/junit.xml",
+        "env": {"MAKE_HTML": "1"},
         "setup": [f"{sys.executable} -c \"open('setup-ran', 'w').write('1')\""],
+        "report_html": "reports/html/index.html",
     }))
     git(work, "add", "-A")
     git(work, "commit", "-m", "tests")
@@ -65,7 +75,8 @@ def test_runs_the_selected_test_of_a_branch(server: str, tmp_path: Path) -> None
                      "automation_keys": ["tests/test_new.py::test_only_on_the_branch",
                                          "tests/test_shop.py::test_secret_is_there"]}]
     ra = RepoAgent(url=server, token="th_x", project=3, repo=str(origin), workdir=tmp_path / "agent",
-                   name="srv", env_file=secrets, secret_files=tmp_path / "files", poll=0.05, once=True)
+                   name="srv", env_file=secrets, secret_files=tmp_path / "files", poll=0.05, once=True,
+                   reports_url="http://reports.example:9323", reports_port=0)
     assert run_repo_agent(ra, log=lambda *_: None) == 0
 
     # The catalog comes from the default branch: no test_only_on_the_branch there.
@@ -83,6 +94,9 @@ def test_runs_the_selected_test_of_a_branch(server: str, tmp_path: Path) -> None
     finish = next(b for p, b in _Server.calls if p.endswith("/finish"))
     assert finish["status"] == "finished"
     assert list((tmp_path / "agent" / "runs").iterdir()) == []  # checkouts removed
+    # The report outlives the checkout and the run links to where the runner serves it.
+    assert "report_url=http%3A%2F%2Freports.example%3A9323%2Fjob-51%2Findex.html" in upload_path
+    assert (tmp_path / "agent" / "reports" / "job-51" / "index.html").read_text() == "html"
 
 
 def test_unknown_branch_fails_the_job(server: str, tmp_path: Path) -> None:  # noqa: F811

@@ -237,6 +237,11 @@ Flags beat the environment, the environment beats the file, and the file beats t
 The token never goes into the file. With `framework = "playwright"` or `"pytest"` the agent lists the tests itself
 and runs selected ones with `--grep` of their titles, or with their node ids.
 
+**Links to the HTML report.** Set `report_html` to the report page the command writes (the Playwright preset uses
+`reports/html/{job_id}/index.html`). The agent serves that page's top folder on `http://localhost:9323`
+(`report_port` to change it), each run links to its report, and each result to its test in it. For JUnit reports,
+a `pw_test_id` property with the report's test id makes the per-test link.
+
 To run a git branch on a server instead (picked when starting a run, latest commit pulled), see
 [runner.md](runner.md).
 

@@ -21,7 +21,8 @@ def test_load_config_presets_and_errors(tmp_path: Path) -> None:
     conf = config.load_config(path)
     assert conf["select"] == "grep" and conf["catalog"] == "auto" and conf["report"] == "reports/results.json"
     assert conf["env"] == {"PLAYWRIGHT_JSON_OUTPUT_NAME": "reports/results.json", "PLAYWRIGHT_HTML_OPEN": "never",
-                           "X": "1"}
+                           "PLAYWRIGHT_HTML_OUTPUT_DIR": "reports/html/{job_id}", "X": "1"}
+    assert conf["report_html"] == "reports/html/{job_id}/index.html"
     for bad, msg in (({"token": "x"}, "unknown setting 'token'"), ({"framework": "jest"}, "framework"),
                      ({"select": "magic", "command": "x", "report": "r"}, "select"), ({}, "set `command`")):
         path.write_text(json.dumps(bad))

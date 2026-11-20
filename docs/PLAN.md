@@ -384,3 +384,11 @@ Goal: deploy TestHarbor on a server, pick a branch of the test repository (e.g. 
   - the image built and ran against the local stack with a git repository: tests in a subfolder, a branch with an extra failing test, a secrets file read by a test;
   - `uv sync` worked in the container;
   - results and branch/commit arrived on the run.
+
+## Phase 19: links from results to the HTML report
+
+- **`report_html`** (a `testharbor.toml` key; the Playwright preset writes `reports/html/{job_id}/index.html` via `PLAYWRIGHT_HTML_OUTPUT_DIR`) names the report page.
+  - A local agent serves the page's first folder (never the whole project) on 127.0.0.1:`report_port` (default 9323, or a free port) in a thread (`cli/.../serve.py`). It sets the run's `report_url` to the page, with `{job_id}` filled in.
+  - A server agent copies the page's folder out of the checkout before removing it, keeps the latest 50 and serves them on 9323 (published on 127.0.0.1 by default). It links runs to `TESTHARBOR_REPORTS_URL/job-<id>/<page>`.
+- **Per-result links** use the existing `pw_test_id` → `#?testId=` mechanism. A project that builds its own Playwright report can put the report's test id into a `pw_test_id` JUnit property to get the same per-test links.
+- `{job_id}` is also filled into the `env` values of the config.

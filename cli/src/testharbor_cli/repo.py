@@ -133,6 +133,8 @@ class RepoAgent:
     poll: float = 3.0
     once: bool = False
     info: dict[str, Any] = field(default_factory=dict)
+    reports_url: str = ""  # how people reach the runner's reports (e.g. http://testharbor.example.com:9323)
+    reports_port: int = 9323
 
 
 def run_setup(commands: list[str], cwd: Path, out) -> None:  # type: ignore[no-untyped-def]
@@ -245,6 +247,12 @@ def run_repo_agent(ra: RepoAgent, log=print) -> int:  # type: ignore[no-untyped-
         finally:
             repo.remove(repo.runs / "catalog")
 
+    from .serve import keep_report, start
+
+    reports = ra.workdir / "reports"
+    port = start(reports, ra.reports_port, host="0.0.0.0")
+    reports_base = (ra.reports_url or f"http://localhost:{port}").rstrip("/")
+    log(f"  reports: {reports_base}/ (port {port})")
     refresh_default()
     info = describe()
     log(f"  default branch {default}; {len(info['branches'])} branches")
@@ -292,7 +300,12 @@ def run_repo_agent(ra: RepoAgent, log=print) -> int:  # type: ignore[no-untyped-
                 if select_mode(cfg) == "args" and job.get("case_ids") and not job.get("automation_keys"):
                     raise CliError("none of the selected cases is linked to a test: sync the autotests first")
                 cfg.catalog = None  # the catalog follows the default branch only
+                page = cfg.report_html.replace("{job_id}", str(job["id"])) if cfg.report_html else ""
+                if page and not cfg.report_url:
+                    cfg.report_url = f"{reports_base}/{slot}/{Path(page).name}"
                 run_job(cfg, api, job, log)
+                if page:
+                    keep_report(cfg.cwd / page, reports, slot)  # the checkout is removed below
             except (CliError, OSError) as e:
                 try:
                     api.call("POST", f"/api/automation/jobs/{job['id']}/finish",

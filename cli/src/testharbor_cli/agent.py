@@ -84,6 +84,8 @@ class AgentConfig:
     extra_env: dict[str, str] = field(default_factory=dict)
     info: dict[str, Any] = field(default_factory=dict)  # shown in TestHarbor: folder, branch, changes
     branch_name: str = ""  # a server agent's checkout is detached: the branch the job asked for
+    report_html: str = ""  # the HTML report page (relative, may contain {job_id}); its first folder is served
+    report_port: int = 9323
 
 
 def case_grep(case_ids: list[int]) -> str:
@@ -314,7 +316,7 @@ def run_job(cfg: AgentConfig, api: Api, job: dict, log=print) -> str:  # type: i
         return finish("error", f"Could not prepare the run: {e}")
 
     env = {k: v for k, v in os.environ.items() if k not in PRIVATE_ENV}
-    env.update(cfg.extra_env)
+    env.update({k: v.replace("{job_id}", str(job_id)) for k, v in cfg.extra_env.items()})
     env.update(options)
     selection_dir = tempfile.TemporaryDirectory(prefix="testharbor-")
     selection = Path(selection_dir.name) / "selection.json"
@@ -458,6 +460,17 @@ def run_agent(cfg: AgentConfig, log=print) -> int:  # type: ignore[no-untyped-de
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, on_sigterm)
+    if cfg.report_html and not cfg.report_url:
+        from .serve import split_report_path, start
+
+        try:
+            folder, page = split_report_path(cfg.report_html)
+            port = start(cfg.cwd / folder, cfg.report_port)
+        except CliError as e:
+            log(f"  reports not served: {e}")
+        else:
+            cfg.report_url = f"http://localhost:{port}/{page}"
+            log(f"  reports: http://localhost:{port}/ (serving {folder}/)")
     refresh(cfg, api, log)
     if cfg.info.get("branch"):
         log(f"  branch {cfg.info['branch']}" + (" (with uncommitted changes)" if cfg.info.get("dirty") else ""))
