@@ -203,7 +203,26 @@ def parse_junit(data: bytes) -> list[JUnitCase]:
     if root.tag not in ("testsuites", "testsuite", "testcase"):
         raise JUnitParseError(f"Not a JUnit report (root element <{root.tag}>)")
     elements = [root] if root.tag == "testcase" else list(root.iter("testcase"))
-    return [_parse_testcase(el) for el in elements]
+    return collapse_retries([_parse_testcase(el) for el in elements])
+
+
+def collapse_retries(cases: list[JUnitCase]) -> list[JUnitCase]:
+    """Reruns (pytest-rerunfailures, Surefire's rerunFailingTestsCount…) write a test once per attempt, the
+    earlier attempts often without a failure element: only the last attempt is the test's result. A test
+    that needed a retry and then passed is reported as flaky."""
+    groups: dict[tuple[str, str, str], list[JUnitCase]] = {}
+    for c in cases:
+        groups.setdefault((c.classname, c.name, c.file), []).append(c)
+    out: list[JUnitCase] = []
+    for attempts in groups.values():
+        last = attempts[-1]
+        if len(attempts) > 1:
+            if last.status == ResultStatus.passed:
+                last.message = f"Flaky: passed on retry {len(attempts) - 1}"
+            elif last.status == ResultStatus.failed:
+                last.details = _clip(f"Failed in all {len(attempts)} attempts.\n\n{last.details or ''}")
+        out.append(last)
+    return out
 
 
 # Order for writing several results for the same case in one import: the worst status

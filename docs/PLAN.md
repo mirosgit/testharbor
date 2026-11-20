@@ -423,3 +423,7 @@ Reports served by the agent only opened while that agent ran, and only on that m
 - **Cleanup.** Deleting a run, several runs or a project deletes their reports.
 - **Removed.** The agent's local report server (`serve.py`, `report_port`) and the runner's report port/volume.
 - **Verified in a browser:** a merged Playwright report of a role-based suite opens from "Open in report" right at the failed test (errors with code, steps, retries), with no console errors.
+
+## Retries in JUnit reports
+
+pytest-rerunfailures (and similar) writes a test once per attempt. The earlier attempts often have no failure element, so they looked like passes, and a case got a bogus passed result next to the real one. `parse_junit` now keeps only the last attempt of a test (same classname, name and file within one report). If an earlier attempt needed a retry and the last one passed, the result says "Flaky: passed on retry N". If every attempt failed, its log starts with "Failed in all N attempts".

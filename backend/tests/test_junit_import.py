@@ -422,3 +422,20 @@ async def test_config_property_labels_results_per_role(client: AsyncClient, make
     assert [(h["status"], h["config"]) for h in hist] == [("failed", "Admin"), ("passed", "Super Admin")]
     listed = (await client.get(f"/api/runs/{run_id}/cases")).json()
     assert listed[0]["last_result"]["config"] == "Admin"
+
+
+
+def test_reruns_keep_the_last_attempt() -> None:
+    """pytest-rerunfailures writes the test again for every attempt; earlier ones look passed."""
+    xml = (b'<testsuites><testsuite name="pytest">'
+           b'<testcase classname="admin.tests.test_ct" name="test_alloc" time="77"/>'
+           b'<testcase classname="admin.tests.test_ct" name="test_alloc" time="29"><failure message="boom"/></testcase>'
+           b'<testcase classname="admin.tests.test_ct" name="test_flaky" time="5"/>'
+           b'<testcase classname="admin.tests.test_ct" name="test_flaky" time="4"/>'
+           b'<testcase classname="admin.tests.test_ct" name="test_once" time="1"/>'
+           b"</testsuite></testsuites>")
+    tests = parse_junit(xml)
+    assert [(t.name, t.status.value, t.time_s) for t in tests] == [
+        ("test_alloc", "failed", 29.0), ("test_flaky", "passed", 4.0), ("test_once", "passed", 1.0)]
+    assert tests[0].details and tests[0].details.startswith("Failed in all 2 attempts")
+    assert tests[1].message == "Flaky: passed on retry 1"
