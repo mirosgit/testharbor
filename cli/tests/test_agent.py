@@ -30,6 +30,7 @@ class _Server(BaseHTTPRequestHandler):
     jobs: list[dict] = []
     calls: list[tuple[str, dict | bytes]] = []
     cancel = False
+    gone = False  # the job's run was deleted: progress answers 404
 
     def do_POST(self) -> None:  # noqa: N802
         raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
@@ -43,6 +44,10 @@ class _Server(BaseHTTPRequestHandler):
                 return
             self._json(self.jobs.pop(0))
         elif path.endswith("/progress"):
+            if self.gone:
+                self.send_response(404)
+                self.end_headers()
+                return
             self._json({"cancelled": self.cancel})
         elif path.endswith("/finish"):
             self._json({"status": "finished"})
@@ -68,7 +73,7 @@ class _Server(BaseHTTPRequestHandler):
 
 @pytest.fixture
 def server():  # type: ignore[no-untyped-def]
-    _Server.jobs, _Server.calls, _Server.cancel = [], [], False
+    _Server.jobs, _Server.calls, _Server.cancel, _Server.gone = [], [], False, False
     httpd = HTTPServer(("127.0.0.1", 0), _Server)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{httpd.server_port}"
@@ -248,3 +253,15 @@ def test_catalog_is_sent_when_the_agent_starts(server: str, tmp_path: Path) -> N
     lines.clear()
     assert agent_mod.upload_catalog(cfg, agent_mod.Api(cfg), log=lines.append) is False
     assert "catalog not sent" in lines[0]
+
+
+def test_deleted_run_stops_the_tests(server: str, tmp_path: Path) -> None:
+    slow = tmp_path / "slow.py"
+    slow.write_text("import time\nprint('start', flush=True)\ntime.sleep(60)\n")
+    _Server.jobs = [{"id": 15, "run_id": 8, "case_ids": []}]
+    _Server.gone = True
+    cfg = _cfg(server, tmp_path)
+    cfg.command = f'"{sys.executable}" "{slow}"'
+    lines: list[str] = []
+    run_agent(cfg, log=lines.append)  # returns well before the 60 s sleep ends
+    assert any("run was deleted" in line for line in lines)

@@ -399,3 +399,11 @@ The security review found that in `select = "args"` mode (the pytest preset) the
 
 - **Agent (the trust boundary).** In `args` mode a key must be a plain relative test id: no leading `-`, no absolute or drive path, no `..` (`safe_test_id`). It must also be one of the agent's own tests: `known_keys` from its catalog, and for a server agent from the job's checkout. Otherwise the job fails with "refusing to run" and nothing starts. `grep` mode escapes keys into one `--grep` value. `env` mode hands them to the user's runner, which must validate them against the tests it knows.
 - **Server (defence in depth).** `automation_key` (cases, CSV/JSON import) and catalog test keys are rejected with 422 if they start with `-`. A JUnit auto-created case gets no automation key in that case.
+
+## Deleting runs: admins only, several at once
+
+- `DELETE /api/runs/{id}` now needs the admin role. It was open to everyone before.
+- `POST /api/projects/{id}/runs/delete` (`{"ids": [...]}`, admins) deletes several runs of the project. Ids of other projects are ignored. Results, run cases and autotest jobs go with them (database cascades).
+- If a running job's run is deleted, the agent's `progress` call gets 404. The agent treats that as a cancel and stops the tests.
+- UI: admins get check boxes and **Delete** in the runs list. "Delete run" in a run's menu is shown to admins only.
+- Local agents: a failing `secrets` command is a warning, and the agent still starts and serves the reports.

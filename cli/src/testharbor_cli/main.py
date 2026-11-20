@@ -281,7 +281,8 @@ def cmd_agent(args: argparse.Namespace) -> int:
         try:
             run_secrets(conf["secrets"], cwd)
         except CliError as e:
-            return _fail(str(e))
+            # The agent still starts: tests that need these secrets fail, the others run; reports are served.
+            print(f"testcli: WARNING: {e}; starting anyway", file=sys.stderr, flush=True)
     return run_agent(cfg)
 
 

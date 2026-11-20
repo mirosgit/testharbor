@@ -30,6 +30,7 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
   filter, or from selected cases. The run page shows a progress bar and per-status counts. Each
   case can have several results; the most recent one is its current status. "Save & next untested"
   moves you to the next case without a result.
+- **Deleting runs** is for admins, one at a time or several from the runs list.
 - **Run history per case.** Each case shows every run it was in and its result there.
 - **Import and export.** Cases can be imported and exported as CSV (spreadsheet-friendly) or JSON
   (lossless). Import also reads **BrowserStack Test Management and TestRail CSV exports**:

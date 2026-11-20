@@ -380,6 +380,11 @@ def _execute(cfg: AgentConfig, api: Api, job: dict, args: list[str], env: dict[s
             try:
                 _, ctl = api.call("POST", f"/api/automation/jobs/{job_id}/progress", {"log": out.take()})
             except CliError as e:
+                if "HTTP 404" in str(e) and not cancelled:  # the run (and its job) was deleted in TestHarbor
+                    cancelled = True
+                    log("  the run was deleted in TestHarbor, stopping the tests…")
+                    stop()
+                    continue
                 log(f"  (progress not sent: {e})")
                 continue
             if ctl and ctl.get("cancelled") and not cancelled:

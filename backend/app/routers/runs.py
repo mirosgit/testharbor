@@ -2,10 +2,10 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import CurrentPrincipal
+from app.auth import CurrentPrincipal, require_admin
 from app.db import get_session
 from app.models import (
     Project,
@@ -28,6 +28,8 @@ from app.schemas import (
     RunList,
     RunOut,
     RunPatch,
+    RunsDelete,
+    RunsDeleted,
     RunSelection,
     resolve_report_link,
 )
@@ -176,11 +178,23 @@ async def update_run(run_id: int, body: RunPatch, session: Session) -> RunOut:
     return await run_out(session, run)
 
 
-@router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)])
 async def delete_run(run_id: int, session: Session) -> None:
+    """Admins only. Its results and autotest jobs go with it; an agent running one stops."""
     run = await get_or_404(session, TestRun, run_id)
     await session.delete(run)
     await session.commit()
+
+
+@router.post("/projects/{project_id}/runs/delete", response_model=RunsDeleted, dependencies=[Depends(require_admin)])
+async def delete_runs(project_id: int, body: RunsDelete, session: Session) -> RunsDeleted:
+    """Admins only: delete several runs of the project at once (ids of other projects are ignored)."""
+    await get_or_404(session, Project, project_id)
+    result = await session.execute(
+        delete(TestRun).where(TestRun.project_id == project_id, TestRun.id.in_(body.ids))
+    )
+    await session.commit()
+    return RunsDeleted(deleted=result.rowcount or 0)
 
 
 # --- Run membership --------------------------------------------------------------------

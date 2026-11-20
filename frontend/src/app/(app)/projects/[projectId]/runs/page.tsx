@@ -1,19 +1,23 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { Bot, Lock, PlayCircle, Plus, Upload } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Bot, Lock, PlayCircle, Plus, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { CreateRunDialog } from "@/components/runs/create-run-dialog";
 import { JUnitUploadDialog } from "@/components/runs/junit-upload-dialog";
 import { passRate, percentDone, RunProgress } from "@/components/runs/progress";
 import { CiMeta, RunSourceBadge, timeAgo } from "@/components/runs/run-meta";
 import { Pager, SortMenu, type SortOption, type SortState } from "@/components/sort-menu";
+import { ConfirmDialog } from "@/components/dialogs";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
+import { useIsAdmin } from "@/lib/me";
 import type { RunSort } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -38,11 +42,18 @@ export default function RunsPage() {
   const [creating, setCreating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const closed = TABS.find((t) => t.key === tab)!.closed;
+  const isAdmin = useIsAdmin();
+  const qc = useQueryClient();
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  useEffect(() => setPicked(new Set()), [tab, page, sort]);
   const { data, isLoading } = useQuery({
     queryKey: ["runs", projectId, tab, page, sort],
     queryFn: () => api.runs(projectId, { closed, limit: PAGE, offset: page * PAGE, ...sort }),
     placeholderData: (prev) => prev,
   });
+
+  const allPicked = !!data?.items.length && data.items.every((r) => picked.has(r.id));
 
   return (
     <main className="h-full overflow-y-auto">
@@ -108,9 +119,54 @@ export default function RunsPage() {
           </div>
         ) : (
           <div className="divide-y rounded-lg border" data-testid="runs-list">
+            {isAdmin && (
+              <div className="flex min-h-11 flex-wrap items-center gap-3 bg-muted/30 px-4 py-2 text-sm">
+                <Checkbox
+                  aria-label="Select all runs on this page"
+                  checked={allPicked ? true : picked.size ? "indeterminate" : false}
+                  onCheckedChange={(v) => setPicked(v === true ? new Set(data.items.map((r) => r.id)) : new Set())}
+                />
+                {picked.size ? (
+                  <>
+                    <span className="font-medium">{picked.size} selected</span>
+                    <Button size="xs" variant="destructive" onClick={() => setDeleting(true)}>
+                      <Trash2 /> Delete
+                    </Button>
+                    <Button size="xs" variant="ghost" onClick={() => setPicked(new Set())}>
+                      Clear
+                    </Button>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">Select runs to delete them</span>
+                )}
+              </div>
+            )}
             {data.items.map((r) => (
-              <div key={r.id} className="relative grid grid-cols-[1fr_260px_110px] items-center gap-6 px-4 py-3 hover:bg-muted/40">
+              <div
+                key={r.id}
+                className={cn(
+                  "relative grid items-center gap-6 px-4 py-3 hover:bg-muted/40",
+                  isAdmin ? "grid-cols-[auto_1fr_260px_110px]" : "grid-cols-[1fr_260px_110px]",
+                  picked.has(r.id) && "bg-primary/5",
+                )}
+                data-testid="run-row"
+              >
                 <Link href={`/projects/${projectId}/runs/${r.id}`} className="absolute inset-0" aria-label={r.name} />
+                {isAdmin && (
+                  <Checkbox
+                    className="relative z-10"
+                    aria-label={`Select ${r.name}`}
+                    checked={picked.has(r.id)}
+                    onCheckedChange={(v) =>
+                      setPicked((s) => {
+                        const n = new Set(s);
+                        if (v === true) n.add(r.id);
+                        else n.delete(r.id);
+                        return n;
+                      })
+                    }
+                  />
+                )}
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <RunSourceBadge run={r} />
@@ -151,6 +207,22 @@ export default function RunsPage() {
         )}
       </div>
       <CreateRunDialog open={creating} onOpenChange={setCreating} projectId={projectId} />
+      <ConfirmDialog
+        open={deleting}
+        onOpenChange={setDeleting}
+        title={`Delete ${picked.size} run${picked.size === 1 ? "" : "s"}?`}
+        description="All results recorded in them are deleted, and running autotests are stopped. Test cases are not affected."
+        onConfirm={async () => {
+          try {
+            const { deleted } = await api.deleteRuns(projectId, [...picked]);
+            toast.success(`${deleted} run${deleted === 1 ? "" : "s"} deleted`);
+            setPicked(new Set());
+            qc.invalidateQueries({ queryKey: ["runs", projectId] });
+          } catch (e) {
+            toast.error(e instanceof ApiError ? e.message : "Something went wrong");
+          }
+        }}
+      />
       <JUnitUploadDialog open={uploading} onOpenChange={setUploading} projectId={projectId} />
     </main>
   );

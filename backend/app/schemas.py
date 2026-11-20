@@ -569,6 +569,14 @@ class RunList(BaseModel):
     total: int
 
 
+class RunsDelete(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class RunsDeleted(BaseModel):
+    deleted: int
+
+
 class ResultIn(BaseModel):
     case_id: int
     status: ResultStatus

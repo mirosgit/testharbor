@@ -165,7 +165,9 @@ def test_secrets_run_for_local_agents_only(tmp_path: Path, monkeypatch) -> None:
     conf = json.loads((tmp_path / "testharbor.json").read_text())
     conf["secrets"] = f"{sys.executable} -c \"raise SystemExit(4)\""
     (tmp_path / "testharbor.json").write_text(json.dumps(conf))
-    assert main(["agent", "--cwd", str(tmp_path)]) == 2  # failed secrets: the agent does not start
+    started.clear()
+    assert main(["agent", "--cwd", str(tmp_path)]) == 0  # failed secrets: a warning, the agent still starts
+    assert started
 
 
 def test_args_mode_refuses_keys_that_are_not_tests_of_the_agent() -> None:

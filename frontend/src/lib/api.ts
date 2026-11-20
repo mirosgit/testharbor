@@ -214,6 +214,8 @@ export const api = {
   updateRun: (id: number, body: { name?: string; description?: string; closed?: boolean; report_url?: string | null }) =>
     request<TestRun>(`/api/runs/${id}`, json("PATCH", body)),
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, json("DELETE")),
+  deleteRuns: (projectId: number, ids: number[]) =>
+    request<{ deleted: number }>(`/api/projects/${projectId}/runs/delete`, json("POST", { ids })),
   runCases: (id: number) => request<RunCase[]>(`/api/runs/${id}/cases`),
   addRunCases: (id: number, sel: RunSelection) =>
     request<TestRun>(`/api/runs/${id}/cases`, json("POST", sel)),

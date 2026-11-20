@@ -260,3 +260,19 @@ test("Autotests: run on the server, on a chosen branch", async ({ page }) => {
   const job = await (await claim({ agent: "server", info: { mode: "repo" } })).json();
   expect([job.branch, job.target_agent]).toEqual(["feature/new-flows", "server"]);
 });
+
+test("Admins delete several runs at once", async ({ page }) => {
+  await login(page);
+  const { project } = await seedProject(page.request, ["A"]);
+  for (const name of ["Old run 1", "Old run 2", "Keep me"]) {
+    await page.request.post(`/api/projects/${project.id}/runs`, { data: { name } });
+  }
+  await page.goto(`/projects/${project.id}/runs`);
+  await expect(page.getByTestId("run-row")).toHaveCount(3);
+  await page.getByRole("checkbox", { name: "Select Old run 1" }).click();
+  await page.getByRole("checkbox", { name: "Select Old run 2" }).click();
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByTestId("run-row")).toHaveCount(1);
+  await expect(page.getByTestId("run-row")).toContainText("Keep me");
+});
