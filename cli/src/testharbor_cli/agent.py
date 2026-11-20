@@ -38,6 +38,7 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -84,10 +85,9 @@ class AgentConfig:
     extra_env: dict[str, str] = field(default_factory=dict)
     info: dict[str, Any] = field(default_factory=dict)  # shown in TestHarbor: folder, branch, changes
     branch_name: str = ""  # a server agent's checkout is detached: the branch the job asked for
-    report_html: str = ""  # the HTML report page (relative, may contain {job_id}); its first folder is served
+    report_html: str = ""  # the HTML report page (relative, may contain {job_id}); its folder is uploaded
     # Keys of the tests this agent listed itself (its catalog): with select "args" only these reach the command.
     known_keys: set[str] | None = None
-    report_port: int = 9323
 
 
 def case_grep(case_ids: list[int]) -> str:
@@ -415,11 +415,53 @@ def _execute(cfg: AgentConfig, api: Api, job: dict, args: list[str], env: dict[s
         result = upload(cfg.url, cfg.token, cfg.project, reports, params)
     except CliError as e:
         return finish("error", f"Upload failed: {e}", code)
+    if cfg.report_html:
+        page = cfg.cwd / cfg.report_html.replace("{job_id}", str(job_id))
+        try:
+            upload_report(cfg, run_id, page)
+            out.add(f"HTML report uploaded: {page.relative_to(cfg.cwd)}\n")
+        except CliError as e:
+            out.add(f"HTML report not uploaded: {e}\n")
     st = result.get("statuses", {})
     counts = ", ".join(f"{v} {k}" for k, v in sorted(st.items())) or "no results"
     summary = (f"{result.get('total', 0)} tests ({counts}); matched {result.get('matched', 0)}, "
                f"created {result.get('created', 0)}, unmatched {len(result.get('unmatched', []))}")
     return finish("finished", summary, code)
+
+
+def upload_report(cfg: AgentConfig, run_id: int, page: Path) -> None:
+    """Zip the folder of the HTML report page and store it with the run: TestHarbor serves it, the run links to
+    it and every result to its test in it. Only files inside the folder are taken (no symlinks)."""
+    import tempfile
+    import uuid
+    import zipfile
+
+    if not page.is_file():
+        raise CliError(f"{page} was not written")
+    folder = page.parent
+    with tempfile.TemporaryFile() as tmp:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+            for path in sorted(folder.rglob("*")):
+                if path.is_file() and not path.is_symlink():
+                    zf.write(path, path.relative_to(folder).as_posix())
+        tmp.seek(0)
+        data = tmp.read()
+    boundary = f"----testharbor{uuid.uuid4().hex}"
+    body = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="report.zip"\r\n'
+            f"Content-Type: application/zip\r\n\r\n").encode() + data + f"\r\n--{boundary}--\r\n".encode()
+    query = urllib.parse.urlencode({"page": page.name})
+    req = urllib.request.Request(f"{cfg.url.rstrip('/')}/api/runs/{run_id}/report?{query}", data=body, method="PUT",
+                                 headers={"Authorization": f"Bearer {cfg.token}",
+                                          "Content-Type": f"multipart/form-data; boundary={boundary}",
+                                          "User-Agent": f"testharbor-agent/{__version__}"})
+    try:
+        with urllib.request.urlopen(req, timeout=600):
+            pass
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode(errors="replace")[:300]
+        raise CliError(f"HTTP {e.code}: {detail}") from e
+    except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+        raise CliError(f"cannot reach {cfg.url}: {getattr(e, 'reason', e)}") from e
 
 
 def upload_catalog(cfg: AgentConfig, api: Api, log=print) -> bool:  # type: ignore[no-untyped-def]
@@ -482,17 +524,6 @@ def run_agent(cfg: AgentConfig, log=print) -> int:  # type: ignore[no-untyped-de
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, on_sigterm)
-    if cfg.report_html and not cfg.report_url:
-        from .serve import split_report_path, start
-
-        try:
-            folder, page = split_report_path(cfg.report_html)
-            port = start(cfg.cwd / folder, cfg.report_port)
-        except CliError as e:
-            log(f"  reports not served: {e}")
-        else:
-            cfg.report_url = f"http://localhost:{port}/{page}"
-            log(f"  reports: http://localhost:{port}/ (serving {folder}/)")
     refresh(cfg, api, log)
     if cfg.info.get("branch"):
         log(f"  branch {cfg.info['branch']}" + (" (with uncommitted changes)" if cfg.info.get("dirty") else ""))

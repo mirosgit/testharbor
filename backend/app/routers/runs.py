@@ -18,6 +18,7 @@ from app.models import (
     TestRun,
     User,
 )
+from app.reports import delete_reports
 from app.schemas import (
     BulkResultsIn,
     CaseHistoryItem,
@@ -184,17 +185,19 @@ async def delete_run(run_id: int, session: Session) -> None:
     run = await get_or_404(session, TestRun, run_id)
     await session.delete(run)
     await session.commit()
+    delete_reports([run_id])
 
 
 @router.post("/projects/{project_id}/runs/delete", response_model=RunsDeleted, dependencies=[Depends(require_admin)])
 async def delete_runs(project_id: int, body: RunsDelete, session: Session) -> RunsDeleted:
     """Admins only: delete several runs of the project at once (ids of other projects are ignored)."""
     await get_or_404(session, Project, project_id)
-    result = await session.execute(
-        delete(TestRun).where(TestRun.project_id == project_id, TestRun.id.in_(body.ids))
-    )
+    deleted = list(await session.scalars(
+        delete(TestRun).where(TestRun.project_id == project_id, TestRun.id.in_(body.ids)).returning(TestRun.id)
+    ))
     await session.commit()
-    return RunsDeleted(deleted=result.rowcount or 0)
+    delete_reports(deleted)
+    return RunsDeleted(deleted=len(deleted))
 
 
 # --- Run membership --------------------------------------------------------------------

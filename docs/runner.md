@@ -88,11 +88,8 @@ tick the tests and press **Run selected**. The run page shows the checkout, setu
 ## Reports
 
 If `testharbor.toml` names the HTML report (`report_html = "reports/t{job_id}/index.html"`; the Playwright preset sets
-it), the runner keeps each run's report after removing the checkout (the latest 50) and serves them on port 9323.
-Every run in TestHarbor links to its report and every result to its test in it (`index.html#?testId=…`, from a
-`pw_test_id` JUnit property or the Playwright JSON report). Reports contain traces with the tests' session tokens, so
-the port is bound to 127.0.0.1: to open them from other machines, put it behind your proxy or VPN, then set
-`RUNNER_REPORTS_URL` (the address people use) and `RUNNER_REPORTS_BIND=0.0.0.0`.
+it), the runner uploads the report's folder into the run after the tests, before the checkout is removed. TestHarbor
+keeps it and opens it from the run, and every result links to its test in it. Nothing to expose on the runner.
 
 ## Updating and troubleshooting
 

@@ -10,8 +10,8 @@
     # catalog = "auto"              # auto (built in for playwright/pytest) | a JSON file | "" (none)
     # options = "testharbor-options.json"
     # prepare = "..."               # runs before reading options/catalog (e.g. a generator)
-    # report_html = "playwright-report/index.html"   # the HTML report: the agent serves its folder and links
-    #                               # every result to its test in it (may contain {job_id})
+    # report_html = "playwright-report/index.html"   # the HTML report: its folder is uploaded to the run, the
+    #                               # run links to it and every result to its test in it (may contain {job_id})
     # setup = ["uv sync --locked"]  # server agents only: after checking out a branch, before anything else
     # secrets = "./get-secrets.sh"  # local agents only: runs in your terminal when the agent starts (an MFA
     #                               # code, a vault login…); server agents get secrets from their tests.env
@@ -39,7 +39,7 @@ FRAMEWORKS = ("playwright", "pytest", "custom")
 SELECT_MODES = ("grep", "args", "env", "none")
 KEYS = {
     "url", "project", "framework", "command", "report", "report_url", "select", "grep_arg", "catalog",
-    "options", "prepare", "setup", "secrets", "auto_create", "name", "poll", "env", "report_html", "report_port",
+    "options", "prepare", "setup", "secrets", "auto_create", "name", "poll", "env", "report_html",
 }
 
 # What each framework gets unless the config says otherwise.
@@ -234,7 +234,6 @@ def agent_kwargs(conf: dict[str, Any], cwd: Path, read_options: bool = True) -> 
         "extra_env": dict(conf.get("env", {})),
         "report_url": str(conf.get("report_url", "")),
         "report_html": str(conf.get("report_html", "")),
-        "report_port": int(conf.get("report_port", 9323)),
         "auto_create": bool(conf.get("auto_create")),
         "grep_arg": str(conf.get("grep_arg", "--grep")),
     }

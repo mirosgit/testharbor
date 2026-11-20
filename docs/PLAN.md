@@ -407,3 +407,19 @@ The security review found that in `select = "args"` mode (the pytest preset) the
 - If a running job's run is deleted, the agent's `progress` call gets 404. The agent treats that as a cancel and stops the tests.
 - UI: admins get check boxes and **Delete** in the runs list. "Delete run" in a run's menu is shown to admins only.
 - Local agents: a failing `secrets` command is a warning, and the agent still starts and serves the reports.
+
+## Reports stored in TestHarbor (replaces serving them from the agent)
+
+Reports served by the agent only opened while that agent ran, and only on that machine, so they now live in TestHarbor.
+
+- **Upload.** After uploading the results, the agent zips the folder of `report_html` (no symlinks) and sends it with `PUT /api/runs/{id}/report?page=…` (any signed-in user or token).
+- **Storage** (`app/reports.py`). TestHarbor unpacks the zip into `REPORTS_DIR/<run id>` (the `reports-data` volume) and replaces the run's earlier report.
+  - Unsafe members are skipped: absolute paths, `..`, drive letters, symlinks.
+  - Limits: 20 000 files, and `MAX_REPORT_MB` (500) unpacked, counted while writing because the sizes in the zip's directory can lie.
+  - The run's `report_url` becomes `/r/<token>/<page>`; the token is the run id signed with SECRET_KEY. Results keep their `#?testId=` links.
+- **Serving.** `GET /r/{token}/{path}` (Next rewrites `/r/*`, and the session gate skips it) needs no cookie: the signed path is the access, so the report's relative files load.
+  - Every response is `Content-Security-Policy: sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals`, without `allow-same-origin`, plus `nosniff` and `no-referrer`. A report (HTML and JavaScript written by the tests) runs in an opaque origin, with no access to TestHarbor's cookies, storage or API.
+  - HTML pages get a storage shim first, because Playwright's report reads localStorage and the sandbox would throw. Service-worker trace viewers don't run; trace files download.
+- **Cleanup.** Deleting a run, several runs or a project deletes their reports.
+- **Removed.** The agent's local report server (`serve.py`, `report_port`) and the runner's report port/volume.
+- **Verified in a browser:** a merged Playwright report of a role-based suite opens from "Open in report" right at the failed test (errors with code, steps, retries), with no console errors.

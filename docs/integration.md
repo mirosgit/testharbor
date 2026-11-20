@@ -242,9 +242,11 @@ options: with `select = "args"` it only passes keys of tests it listed itself (n
 `..`); with `select = "env"` your runner gets them in `TESTHARBOR_SELECTION` and must only run tests it knows.
 
 **Links to the HTML report.** Set `report_html` to the report page the command writes (the Playwright preset uses
-`reports/html/{job_id}/index.html`). The agent serves that page's top folder on `http://localhost:9323`
-(`report_port` to change it), each run links to its report, and each result to its test in it. For JUnit reports,
-a `pw_test_id` property with the report's test id makes the per-test link.
+`reports/html/{job_id}/index.html`). After the tests the agent uploads that page's folder into the run
+(`PUT /api/runs/{id}/report`, a zip), TestHarbor keeps it, the run links to it and each result to its test in it. For
+JUnit reports, a `pw_test_id` property with the report's test id makes the per-test link. Reports open at
+`/r/<signed link>/…`, sandboxed: they can't reach TestHarbor's session or API (so a trace viewer that needs a service
+worker doesn't run there; traces can be downloaded).
 
 To run a git branch on a server instead (picked when starting a run, latest commit pulled), see
 [runner.md](runner.md).

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import require_admin
 from app.db import get_session
 from app.models import Project, Suite, TestCase, TestRun
+from app.reports import delete_reports
 from app.schemas import ProjectIn, ProjectOut, ProjectPatch, RoleRename, _clean_roles
 from app.services import get_or_404
 
@@ -100,5 +101,7 @@ async def rename_role(project_id: int, body: RoleRename, session: Session) -> Pr
 )
 async def delete_project(project_id: int, session: Session) -> None:
     project = await get_or_404(session, Project, project_id)
+    run_ids = list(await session.scalars(select(TestRun.id).where(TestRun.project_id == project_id)))
     await session.delete(project)
     await session.commit()
+    delete_reports(run_ids)

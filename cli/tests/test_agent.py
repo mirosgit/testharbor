@@ -57,6 +57,10 @@ class _Server(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:  # noqa: N802
         raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        if "/report" in self.path:  # an HTML report (multipart zip)
+            type(self).calls.append((self.path, raw))
+            self._json({"id": 1})
+            return
         type(self).calls.append((self.path, json.loads(raw)))
         self._json({"counts": {"create": 2, "update": 0, "link": 0, "outdated": 0, "unchanged": 1}})
 

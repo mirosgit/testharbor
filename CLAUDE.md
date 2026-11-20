@@ -75,7 +75,7 @@ Everything runs in Docker. Node and npm are not installed on the host.
   Review the result and add data steps if needed. Migrations apply on backend start. `tests/test_models.py` fails if models and migrations drift.
 - **Adding an npm package:** `docker run … node:22-alpine npm install <pkg>@<exact version>` in `frontend/`.
 
-At the time of writing, all tests pass: backend about 146, CLI 41, e2e 13.
+At the time of writing, all tests pass: backend about 148, CLI 38, e2e 13.
 
 ## Verification (visual)
 
@@ -101,6 +101,7 @@ Take screenshots with the e2e container:
 - **Run autotests.** A job is queued in TestHarbor, and `testcli agent` on the machine with the tests claims it, runs its local command (adding `--grep` for selected case IDs), streams the log and uploads the report.
   - The server never sends commands, only case IDs and values of the run options the agent itself offers (`--options`), which the agent checks and passes as environment variables. Keep it that way.
   - Results have a `config` (a role, a browser, a Playwright project), from a `config` JUnit property.
+  - Runs' HTML reports are uploaded by agents and served sandboxed at `/r/<signed token>/…` (`app/reports.py`): never relax that CSP sandbox, the reports are code written by tests.
   - The agent's `--catalog` is synced into cases after a preview (`app/catalog.py`). `catalog_managed` cases follow their test; linked manual cases only get the automation fields. Nothing is ever deleted, only marked Outdated.
 - **Auth.**
   - Roles are admin and tester. Passwords are hashed with argon2id.

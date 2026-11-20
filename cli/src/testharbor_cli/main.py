@@ -205,7 +205,6 @@ def cmd_repo_agent(args: argparse.Namespace) -> int:
         secret_files=Path(sf) if (sf := args.secret_files or env("TESTHARBOR_SECRET_FILES")) else None,
         branch=args.branch or env("TESTHARBOR_BRANCH"),
         subdir=args.repo_path or env("TESTHARBOR_REPO_PATH"), poll=args.poll or 3.0, once=args.once,
-        reports_url=env("TESTHARBOR_REPORTS_URL"), reports_port=int(env("TESTHARBOR_REPORTS_PORT") or 9323),
     ))
 
 
@@ -267,7 +266,7 @@ def cmd_agent(args: argparse.Namespace) -> int:
         framework=str(conf.get("framework", "custom")), select=select, prepare=str(conf.get("prepare", "")),
         extra_env=dict(conf.get("env", {})),
         report_url=str(setting(args.report_url, "report_url", "TESTHARBOR_REPORT_URL", "")),
-        report_html=str(conf.get("report_html", "")), report_port=int(conf.get("report_port", 9323)),
+        report_html=str(conf.get("report_html", "")),
         auto_create=bool(args.auto_create or conf.get("auto_create")),
         grep_arg=str(conf.get("grep_arg", legacy_grep)) if args.grep_arg is None else args.grep_arg,
         poll=float(args.poll or conf.get("poll") or 3.0), once=args.once,
@@ -281,7 +280,7 @@ def cmd_agent(args: argparse.Namespace) -> int:
         try:
             run_secrets(conf["secrets"], cwd)
         except CliError as e:
-            # The agent still starts: tests that need these secrets fail, the others run; reports are served.
+            # The agent still starts: tests that need these secrets fail, the others run.
             print(f"testcli: WARNING: {e}; starting anyway", file=sys.stderr, flush=True)
     return run_agent(cfg)
 

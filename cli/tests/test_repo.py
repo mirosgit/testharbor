@@ -75,8 +75,7 @@ def test_runs_the_selected_test_of_a_branch(server: str, tmp_path: Path) -> None
                      "automation_keys": ["tests/test_new.py::test_only_on_the_branch",
                                          "tests/test_shop.py::test_secret_is_there"]}]
     ra = RepoAgent(url=server, token="th_x", project=3, repo=str(origin), workdir=tmp_path / "agent",
-                   name="srv", env_file=secrets, secret_files=tmp_path / "files", poll=0.05, once=True,
-                   reports_url="http://reports.example:9323", reports_port=0)
+                   name="srv", env_file=secrets, secret_files=tmp_path / "files", poll=0.05, once=True)
     assert run_repo_agent(ra, log=lambda *_: None) == 0
 
     # The catalog comes from the default branch: no test_only_on_the_branch there.
@@ -94,9 +93,9 @@ def test_runs_the_selected_test_of_a_branch(server: str, tmp_path: Path) -> None
     finish = next(b for p, b in _Server.calls if p.endswith("/finish"))
     assert finish["status"] == "finished"
     assert list((tmp_path / "agent" / "runs").iterdir()) == []  # checkouts removed
-    # The report outlives the checkout and the run links to where the runner serves it.
-    assert "report_url=http%3A%2F%2Freports.example%3A9323%2Fjob-51%2Findex.html" in upload_path
-    assert (tmp_path / "agent" / "reports" / "job-51" / "index.html").read_text() == "html"
+    # The HTML report is uploaded into the run before the checkout goes.
+    report_path, report_body = next((p, b) for p, b in _Server.calls if "/report" in p)
+    assert report_path == "/api/runs/4/report?page=index.html" and b"index.html" in report_body
 
 
 def test_unknown_branch_fails_the_job(server: str, tmp_path: Path) -> None:  # noqa: F811

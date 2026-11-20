@@ -196,3 +196,30 @@ def test_injected_key_fails_the_job_and_runs_nothing(server: str, tmp_path: Path
     finish = next(b for p, b in _Server.calls if p.endswith("/finish"))
     assert finish["status"] == "error" and "refusing to run" in finish["message"]
     assert (tmp_path / "tests" / "test_a.py").exists() and not (tmp_path / "reports").exists()
+
+
+def test_local_agent_uploads_the_html_report(server: str, tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]  # noqa: F811
+    import io
+    import zipfile
+
+    (tmp_path / "run.py").write_text(textwrap.dedent("""\
+        import os, pathlib
+        d = pathlib.Path("reports") / ("t" + os.environ["TESTHARBOR_JOB_ID"])
+        (d / "data").mkdir(parents=True, exist_ok=True)
+        (d / "index.html").write_text("<p>report</p>")
+        (d / "data" / "shot.png").write_text("png")
+        (d / "junit.xml").write_text('<testsuites><testsuite name="x"><testcase name="t"/></testsuite></testsuites>')
+    """))
+    (tmp_path / ".env").write_text("SECRET=1")
+    (tmp_path / "testharbor.json").write_text(json.dumps({
+        "url": server, "project": 3, "name": "box", "command": f"{sys.executable} run.py",
+        "report": "reports/t{job_id}/junit.xml", "report_html": "reports/t{job_id}/index.html",
+    }))
+    monkeypatch.setenv("TESTHARBOR_TOKEN", "th_x")
+    _Server.jobs = [{"id": 61, "run_id": 2, "case_ids": []}]
+    assert main(["agent", "--cwd", str(tmp_path), "--once", "--poll", "0.05"]) == 0
+    path, body = next((p, b) for p, b in _Server.calls if "/report" in p)
+    assert path == "/api/runs/2/report?page=index.html"
+    data = body[body.index(b"PK"):body.rindex(b"\r\n--")]
+    names = sorted(zipfile.ZipFile(io.BytesIO(data)).namelist())
+    assert names == ["data/shot.png", "index.html", "junit.xml"]  # the report's folder only, no .env

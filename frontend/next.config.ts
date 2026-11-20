@@ -24,7 +24,8 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   async headers() {
-    return [{ source: "/((?!docs|openapi.json|api/).*)", headers: securityHeaders }];
+    // /r/… are runs' HTML reports: the backend serves them with a sandboxing CSP of their own.
+    return [{ source: "/((?!docs|openapi.json|api/|r/).*)", headers: securityHeaders }];
   },
   async rewrites() {
     return [
@@ -32,6 +33,7 @@ const nextConfig: NextConfig = {
       // Expose the backend's OpenAPI docs on the frontend origin too.
       { source: "/docs", destination: `${backend}/docs` },
       { source: "/openapi.json", destination: `${backend}/openapi.json` },
+      { source: "/r/:path*", destination: `${backend}/r/:path*` },
     ];
   },
 };
