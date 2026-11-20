@@ -297,8 +297,12 @@ def run_repo_agent(ra: RepoAgent, log=print) -> int:  # type: ignore[no-untyped-
                 out(f"Fetching {where}…\n")
                 repo.sync()
                 cfg = _prepare_checkout(ra, repo, branch, slot, out)
-                if select_mode(cfg) == "args" and job.get("case_ids") and not job.get("automation_keys"):
-                    raise CliError("none of the selected cases is linked to a test: sync the autotests first")
+                if select_mode(cfg) == "args" and job.get("case_ids"):
+                    if not job.get("automation_keys"):
+                        raise CliError("none of the selected cases is linked to a test: sync the autotests first")
+                    # Only tests that exist in this checkout may be passed to the command (see build_command).
+                    from .collect import build_catalog
+                    cfg.known_keys = {str(t["key"]) for t in build_catalog(cfg.framework, cfg.command, cfg.cwd)}
                 cfg.catalog = None  # the catalog follows the default branch only
                 page = cfg.report_html.replace("{job_id}", str(job["id"])) if cfg.report_html else ""
                 if page and not cfg.report_url:

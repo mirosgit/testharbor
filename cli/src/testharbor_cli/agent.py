@@ -85,6 +85,8 @@ class AgentConfig:
     info: dict[str, Any] = field(default_factory=dict)  # shown in TestHarbor: folder, branch, changes
     branch_name: str = ""  # a server agent's checkout is detached: the branch the job asked for
     report_html: str = ""  # the HTML report page (relative, may contain {job_id}); its first folder is served
+    # Keys of the tests this agent listed itself (its catalog): with select "args" only these reach the command.
+    known_keys: set[str] | None = None
     report_port: int = 9323
 
 
@@ -92,6 +94,13 @@ def case_grep(case_ids: list[int]) -> str:
     """Regex for test titles mentioning any of the cases: "C197 …", "@C197", "[C197]"."""
     ids = "|".join(str(int(i)) for i in case_ids)
     return f"(?<![A-Za-z0-9])C({ids})(?![0-9])"
+
+
+def safe_test_id(key: str) -> bool:
+    """A test id that can only be read as a test: `tests/test_x.py::test_y` (relative, no `..`, no option)."""
+    path = key.split("::", 1)[0].replace("\\", "/")
+    return bool(key) and not key.startswith("-") and "\x00" not in key and not path.startswith("/") \
+        and not re.match(r"^[A-Za-z]:", path) and ".." not in path.split("/")
 
 
 def select_mode(cfg: AgentConfig) -> str:
@@ -115,6 +124,12 @@ def build_command(cfg: AgentConfig, case_ids: list[int], keys: list[str] | None 
         if not keys:
             raise CliError("none of the selected cases is linked to a test (no automation key): "
                            "sync the autotests in TestHarbor first")
+        # Keys come from TestHarbor, where people edit them: they become arguments of the command, so only
+        # plain test ids of this agent's own tests pass (never an option, an absolute path or `..`).
+        bad = [k for k in keys if not safe_test_id(k) or (cfg.known_keys is not None and k not in cfg.known_keys)]
+        if bad:
+            raise CliError("refusing to run, these automation keys are not tests of this agent: "
+                           + ", ".join(repr(k[:80]) for k in bad[:5]) + (" …" if len(bad) > 5 else ""))
         args += pytest_args(keys)
     return args
 
@@ -410,10 +425,12 @@ def upload_catalog(cfg: AgentConfig, api: Api, log=print) -> bool:  # type: igno
     try:
         if cfg.catalog == "auto":
             tests = build_catalog(cfg.framework, cfg.command, cfg.cwd)
+            cfg.known_keys = {str(t["key"]) for t in tests}
         else:
             path = Path(cfg.catalog)
             data = json.loads((path if path.is_absolute() else cfg.cwd / path).read_text(encoding="utf-8"))
             tests = data["tests"] if isinstance(data, dict) else data
+        cfg.known_keys = {str(t.get("key")) for t in tests if isinstance(t, dict)}
         _, preview = api.call("PUT", f"/api/projects/{cfg.project}/automation/catalog",
                               {"agent": cfg.name, "tests": tests}, timeout=120)
     except (OSError, ValueError, KeyError, TypeError) as e:

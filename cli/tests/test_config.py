@@ -166,3 +166,31 @@ def test_secrets_run_for_local_agents_only(tmp_path: Path, monkeypatch) -> None:
     conf["secrets"] = f"{sys.executable} -c \"raise SystemExit(4)\""
     (tmp_path / "testharbor.json").write_text(json.dumps(conf))
     assert main(["agent", "--cwd", str(tmp_path)]) == 2  # failed secrets: the agent does not start
+
+
+def test_args_mode_refuses_keys_that_are_not_tests_of_the_agent() -> None:
+    """Automation keys come from TestHarbor, where anyone edits them: they must never become pytest options."""
+    cfg = AgentConfig(url="", token="", project=1, command="pytest -q", report=Path("r.xml"), select="args")
+    for key in ("--basetemp=/root", "-p evil", "/etc/x.py::t", "../other/test_x.py::t", "a/../../b.py::t",
+                "C:/x.py::t"):
+        with pytest.raises(CliError, match="refusing to run"):
+            build_command(cfg, [1], [key])
+    cfg.known_keys = {"tests/test_a.py::test_ok"}
+    assert build_command(cfg, [1], ["tests/test_a.py::test_ok"])[-1] == "tests/test_a.py::test_ok"
+    with pytest.raises(CliError, match="refusing to run"):
+        build_command(cfg, [1], ["tests/test_a.py::test_ok", "tests/test_b.py::test_other"])
+
+
+def test_injected_key_fails_the_job_and_runs_nothing(server: str, tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]  # noqa: F811
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_a.py").write_text("def test_ok():\n    pass\n")
+    (tmp_path / "testharbor.json").write_text(json.dumps({
+        "url": server, "project": 3, "framework": "pytest", "name": "box",
+        "command": f"{sys.executable} -m pytest -p no:cacheprovider --junitxml=reports/junit.xml",
+    }))
+    monkeypatch.setenv("TESTHARBOR_TOKEN", "th_x")
+    _Server.jobs = [{"id": 70, "run_id": 2, "case_ids": [5], "automation_keys": [f"--basetemp={tmp_path}"]}]
+    assert main(["agent", "--cwd", str(tmp_path), "--once", "--poll", "0.05"]) == 0
+    finish = next(b for p, b in _Server.calls if p.endswith("/finish"))
+    assert finish["status"] == "error" and "refusing to run" in finish["message"]
+    assert (tmp_path / "tests" / "test_a.py").exists() and not (tmp_path / "reports").exists()

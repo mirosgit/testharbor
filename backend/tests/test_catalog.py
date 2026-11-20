@@ -175,3 +175,24 @@ async def test_agent_info_is_shown(client: AsyncClient, make) -> None:  # type: 
     await client.post(f"/api/projects/{p['id']}/automation/claim", json={"agent": "laptop", "info": info})
     (agent,) = (await client.get(f"/api/projects/{p['id']}/automation/agents")).json()
     assert agent["info"] == {**info, "repo": None, "default_branch": None, "branches": []}
+
+
+async def test_automation_keys_cannot_look_like_options(client: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]
+    p, s, sec = await make.tree()
+    case = await make.case(sec["id"], "A")
+    r = await client.patch(f"/api/cases/{case['id']}", json={"automation_key": "--basetemp=/root"})
+    assert r.status_code == 422 and "cannot start with '-'" in r.text
+    assert (await client.post("/api/cases", json={"section_id": sec["id"], "title": "B",
+                                                  "automation_key": "-p evil"})).status_code == 422
+    bad = await client.put(f"/api/projects/{p['id']}/automation/catalog",
+                           json={"tests": [_test("--junitxml=/home/qa/.bashrc", "X")]})
+    assert bad.status_code == 422
+    # A report whose test carries such a key still creates the case, without the key.
+    junit = (b'<testsuites><testsuite name="x"><testcase name="t"><properties>'
+             b'<property name="automation_key" value="--basetemp=/root"/></properties></testcase></testsuite></testsuites>')
+    body = (await client.post(f"/api/projects/{p['id']}/runs/import-junit", params={"auto_create": "true"},
+                              files=[("file", ("j.xml", junit, "application/xml"))])).json()
+    assert body["created"] == 1
+    cases = (await client.get(f"/api/projects/{p['id']}/cases", params={"q": "t"})).json()
+    items = cases["items"] if isinstance(cases, dict) else cases
+    assert all(c["automation_key"] != "--basetemp=/root" for c in items)

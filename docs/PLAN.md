@@ -392,3 +392,10 @@ Goal: deploy TestHarbor on a server, pick a branch of the test repository (e.g. 
   - A server agent copies the page's folder out of the checkout before removing it, keeps the latest 50 and serves them on 9323 (published on 127.0.0.1 by default). It links runs to `TESTHARBOR_REPORTS_URL/job-<id>/<page>`.
 - **Per-result links** use the existing `pw_test_id` → `#?testId=` mechanism. A project that builds its own Playwright report can put the report's test id into a `pw_test_id` JUnit property to get the same per-test links.
 - `{job_id}` is also filled into the `env` values of the config.
+
+## Security fix: automation keys never become command options
+
+The security review found that in `select = "args"` mode (the pytest preset) the agent appended the job's automation keys straight to the pytest argv. Any user can edit a case's automation key, so a tester could inject options: `--basetemp=<dir>` deletes a folder, `--junitxml=<file>` overwrites a file, `--log-file*` writes chosen text (code execution through a `.pth`), and `--tx` runs commands with pytest-xdist.
+
+- **Agent (the trust boundary).** In `args` mode a key must be a plain relative test id: no leading `-`, no absolute or drive path, no `..` (`safe_test_id`). It must also be one of the agent's own tests: `known_keys` from its catalog, and for a server agent from the job's checkout. Otherwise the job fails with "refusing to run" and nothing starts. `grep` mode escapes keys into one `--grep` value. `env` mode hands them to the user's runner, which must validate them against the tests it knows.
+- **Server (defence in depth).** `automation_key` (cases, CSV/JSON import) and catalog test keys are rejected with 422 if they start with `-`. A JUnit auto-created case gets no automation key in that case.

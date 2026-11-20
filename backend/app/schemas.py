@@ -289,6 +289,18 @@ def _clean_key(v: str | None) -> str | None:
     return v or None
 
 
+def unsafe_automation_key(v: str) -> bool:
+    """An automation key that a runner could take for an option: keys reach test commands as arguments."""
+    return v.startswith("-") or "\x00" in v
+
+
+def _clean_automation_key(v: str | None) -> str | None:
+    v = _clean_key(v)
+    if v is not None and unsafe_automation_key(v):
+        raise ValueError("An automation key cannot start with '-' (it would be read as an option of the test command)")
+    return v
+
+
 def _clean_text(v: str | None) -> str | None:
     if v is None:
         return None
@@ -322,7 +334,7 @@ def _clean_fields(fields: list[CustomField]) -> list[CustomField]:
 
 
 CustomFields = Annotated[list[CustomField], AfterValidator(_clean_fields)]
-AutomationKey = Annotated[str | None, Field(max_length=1000), AfterValidator(_clean_key)]
+AutomationKey = Annotated[str | None, Field(max_length=1000), AfterValidator(_clean_automation_key)]
 ExternalId = Annotated[str | None, Field(max_length=200), AfterValidator(_clean_key)]
 
 
@@ -715,7 +727,8 @@ class JobIn(BaseModel):
 class CatalogTest(BaseModel):
     """One automated test as an agent reports it (`testcli agent --catalog`)."""
 
-    key: str = Field(min_length=1, max_length=1000)  # stable id; reports carry it as automation_key
+    # stable id; reports carry it as automation_key
+    key: Annotated[str, Field(min_length=1, max_length=1000), AfterValidator(_clean_automation_key)]
     title: str = Field(min_length=1, max_length=500)
     path: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default=[], max_length=10)
     description: str = Field(default="", max_length=50_000)

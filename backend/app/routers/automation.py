@@ -31,6 +31,7 @@ from app.schemas import (
     TokenIn,
     TokenOut,
     UnmatchedTest,
+    unsafe_automation_key,
 )
 from app.services import ensure_open, get_or_404, next_case_position, record_result
 
@@ -219,13 +220,15 @@ async def import_junit(
                 section_id=section.id,
                 title=t.name[:500],
                 automation_status=AutomationStatus.automated,
-                automation_key=t.default_key()[:1000],
+                # A key a runner could read as an option is not stored (the case is still created).
+                automation_key=None if unsafe_automation_key(t.default_key()) else t.default_key()[:1000],
                 position=position,
             )
             position += 1
             session.add(case)
             await session.flush()
-            by_key[case.automation_key] = case.id  # type: ignore[index]
+            if case.automation_key:
+                by_key[case.automation_key] = case.id
             created += 1
             pending[case.id].append(t)
             continue

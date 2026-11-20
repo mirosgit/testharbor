@@ -237,6 +237,10 @@ Flags beat the environment, the environment beats the file, and the file beats t
 The token never goes into the file. With `framework = "playwright"` or `"pytest"` the agent lists the tests itself
 and runs selected ones with `--grep` of their titles, or with their node ids.
 
+**Selected tests and safety.** Automation keys are edited in TestHarbor, so the agent never treats them as
+options: with `select = "args"` it only passes keys of tests it listed itself (no leading `-`, no absolute paths, no
+`..`); with `select = "env"` your runner gets them in `TESTHARBOR_SELECTION` and must only run tests it knows.
+
 **Links to the HTML report.** Set `report_html` to the report page the command writes (the Playwright preset uses
 `reports/html/{job_id}/index.html`). The agent serves that page's top folder on `http://localhost:9323`
 (`report_port` to change it), each run links to its report, and each result to its test in it. For JUnit reports,
