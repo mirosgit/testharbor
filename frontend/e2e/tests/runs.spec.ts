@@ -95,10 +95,10 @@ test("Run autotests: an agent picks the job up and results land in the run", asy
   await login(page);
   const { project, cases } = await seedProject(page.request, ["Pay by card", "Pay by invoice"]);
   await page.goto(`/projects/${project.id}/runs`);
-  await page.getByRole("button", { name: "Run autotests" }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByTestId("agent-status")).toContainText("No agent is online");
-  await dialog.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("link", { name: "Run autotests" }).click();
+  await expect(page).toHaveURL(/\/autotests$/);
+  await expect(page.getByTestId("agent-status")).toContainText("No agent is online");
+  await page.getByRole("button", { name: "Run all" }).click();
   await expect(page).toHaveURL(/\/runs\/\d+$/);
   const runId = Number(page.url().split("/").pop());
   await expect(page.getByTestId("autotests-status")).toHaveText("Autotests: Waiting for an agent");
@@ -150,16 +150,14 @@ test("Run autotests with the agent's run options; results per role", async ({ pa
   // An agent started with --options shows up (nothing queued yet).
   await page.request.post(`/api/projects/${project.id}/automation/claim`, { data: { agent: "qa-box", options } });
 
-  await page.goto(`/projects/${project.id}/runs`);
-  await page.getByRole("button", { name: "Run autotests" }).click();
-  const dialog = page.getByRole("dialog");
-  const form = dialog.getByTestId("run-options");
+  await page.goto(`/projects/${project.id}/autotests`);
+  const form = page.getByTestId("run-options");
   await form.getByLabel("Environment").click();
   await page.getByRole("option", { name: "qa" }).click();
   await form.getByRole("button", { name: "Admin", exact: true }).click();
   await form.getByRole("button", { name: "Super Admin" }).click();
   await form.getByText("Show the browser").click();
-  await dialog.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("button", { name: "Run all" }).click();
   await expect(page).toHaveURL(/\/runs\/\d+$/);
   const runId = Number(page.url().split("/").pop());
   await expect(page.getByTestId("autotests-params")).toHaveText("Environment: qa · Roles: Super Admin, Admin · Show the browser");
@@ -191,4 +189,37 @@ test("Run autotests with the agent's run options; results per role", async ({ pa
   await expect(results.first()).toContainText("Admin");
   await expect(results.first()).toContainText("Discount Applied");
   await expect(results.nth(1)).toContainText("Super Admin");
+});
+
+
+test("Autotests page: pick single tests from the catalog and run them", async ({ page }) => {
+  await login(page);
+  const { project } = await seedProject(page.request, []);
+  const test_ = (key: string, title: string, path: string[]) => ({
+    key, title, path, description: "", preconditions: "", steps: [], roles: ["Admin"], tags: ["regression"], case_ids: [],
+  });
+  await page.request.put(`/api/projects/${project.id}/automation/catalog`, {
+    data: { agent: "qa-box", tests: [
+      test_("t::add", "A discount code is added", ["Checkout", "Discount codes"]),
+      test_("t::del", "A discount code is removed", ["Checkout", "Discount codes"]),
+      test_("t::export", "Orders are exported", ["Orders", "Export"]),
+    ] },
+  });
+  await page.goto(`/projects/${project.id}/autotests`);
+  const picker = page.getByTestId("test-picker");
+  // Not synced yet: nothing can be picked, the sync is offered.
+  await expect(picker).toContainText("3 of 3 tests have no case yet");
+  await expect(picker.getByRole("checkbox", { name: "All tests in Checkout" })).toBeDisabled();
+  await picker.getByRole("button", { name: "Sync autotests" }).click();
+  await page.getByTestId("catalog-dialog").getByRole("button", { name: "Sync", exact: true }).click();
+  await expect(picker).not.toContainText("have no case yet");
+
+  await picker.getByPlaceholder("Search tests").fill("discount");
+  await expect(picker.getByText("Orders are exported")).toHaveCount(0);
+  await picker.getByRole("checkbox", { name: "All tests in Discount codes" }).click();
+  await expect(page.getByTestId("run-selected")).toHaveText("Run selected (2)");
+  await page.getByTestId("run-selected").click();
+  await expect(page).toHaveURL(/\/runs\/\d+$/);
+  const job = await (await page.request.post(`/api/projects/${project.id}/automation/claim`, { data: { agent: "qa-box" } })).json();
+  expect(job.automation_keys.sort()).toEqual(["t::add", "t::del"]);
 });

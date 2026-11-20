@@ -317,7 +317,8 @@ On the **Test cases** page, **Autotests: N to sync › Review** shows a preview:
   and tags. Priority, owner, sprint, custom fields and the section are yours to change.
 - **Removed tests** mark their catalog cases Outdated. Nothing is deleted.
 
-After the sync, select cases and press **Run autotests**. The agent passes their ids and automation keys to the
+After the sync, open the **Autotests** tab, tick tests in the tree (or select cases on the Test cases page) and
+press **Run selected**. The agent passes their ids and automation keys to the
 command in the JSON file named by `TESTHARBOR_SELECTION`: `{"case_ids": [...], "automation_keys": [...]}`.
 
 ### Results per configuration
