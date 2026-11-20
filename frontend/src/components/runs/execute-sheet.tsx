@@ -119,7 +119,7 @@ function ExecuteBody({
         </div>
       </SheetHeader>
 
-      <div className="grid gap-6 p-6">
+      <div className="grid min-w-0 gap-6 p-4 sm:p-6 [&>*]:min-w-0">
         {!readOnly && (
           <section className="grid gap-3 rounded-lg border bg-muted/30 p-4" aria-label="Add result">
             <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Result status">
@@ -175,10 +175,13 @@ function ExecuteBody({
               <Block title="Steps">
                 <ol className="divide-y rounded-md border">
                   {testCase.steps.map((s, i) => (
-                    <li key={i} className="grid grid-cols-[2rem_1fr_1fr] gap-3 px-3 py-2.5">
+                    <li
+                      key={i}
+                      className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 px-3 py-2.5 [overflow-wrap:anywhere] sm:grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)]"
+                    >
                       <span className="text-sm text-muted-foreground tabular-nums">{i + 1}</span>
                       <Markdown>{s.action}</Markdown>
-                      <div className="text-muted-foreground">
+                      <div className="col-start-2 text-muted-foreground sm:col-start-auto">
                         <Markdown>{s.expected}</Markdown>
                       </div>
                     </li>
@@ -213,24 +216,27 @@ function ExecuteBody({
 }
 
 export function ResultItem({ r }: { r: TestResult }) {
+  // Automated results with several per case carry the test's name as their comment (e.g. a pytest node id).
+  const testName = r.comment && /^\S+$/.test(r.comment) && r.comment.includes("::") ? r.comment : null;
+  const hasBody = !!(r.error_message || r.comment || r.stack_trace);
   return (
-    <li className="rounded-md border p-3 text-sm">
-      <div className="flex items-center gap-2">
+    <li className="min-w-0 overflow-hidden rounded-md border text-sm">
+      <div className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2", hasBody && "border-b bg-muted/30")}>
         <StatusBadge status={r.status} />
         {r.config && (
-          <span className="rounded border px-1.5 py-px text-xs text-muted-foreground" title="Ran as">
+          <span className="rounded border bg-background px-1.5 py-px text-xs text-muted-foreground" title="Ran as">
             {r.config}
           </span>
         )}
         {r.duration_ms != null && (
-          <span className="text-xs text-muted-foreground">{(r.duration_ms / 1000).toFixed(2)}s</span>
+          <span className="text-xs text-muted-foreground tabular-nums">{(r.duration_ms / 1000).toFixed(2)}s</span>
         )}
         {r.report_link && (
           <a
             href={r.report_link}
             target="_blank"
             rel="noreferrer noopener"
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
           >
             <ExternalLink className="size-3" /> Open in report
           </a>
@@ -240,25 +246,56 @@ export function ResultItem({ r }: { r: TestResult }) {
           {new Date(r.created_at).toLocaleString()}
         </span>
       </div>
-      {r.error_message && (
-        <p className="mt-2 font-mono text-xs break-words whitespace-pre-wrap text-status-failed">{r.error_message}</p>
-      )}
-      {r.comment && <Markdown className="mt-2">{r.comment}</Markdown>}
-      {r.stack_trace && (
-        <details className="mt-2">
-          <summary className="cursor-pointer text-xs text-muted-foreground">Stack trace / log</summary>
-          <pre className="mt-1 max-h-72 overflow-auto rounded bg-muted p-2 font-mono text-[11px] leading-relaxed">
-            {r.stack_trace}
-          </pre>
-        </details>
+      {hasBody && (
+        <div className="grid min-w-0 gap-2 p-3">
+          {r.error_message && <ErrorText text={r.error_message} />}
+          {testName ? (
+            <p className="truncate font-mono text-xs text-muted-foreground" title={testName}>
+              {testName}
+            </p>
+          ) : (
+            r.comment && <Markdown className="min-w-0 [overflow-wrap:anywhere]">{r.comment}</Markdown>
+          )}
+          {r.stack_trace && (
+            <details className="min-w-0">
+              <summary className="cursor-pointer text-xs text-muted-foreground">Stack trace / log</summary>
+              <pre className="mt-1 max-h-72 overflow-auto rounded bg-muted p-2 font-mono text-[11px] leading-relaxed">
+                {r.stack_trace}
+              </pre>
+            </details>
+          )}
+        </div>
       )}
     </li>
   );
 }
 
+/** A failure message: wrapped (long locators too), collapsed when long. */
+function ErrorText({ text }: { text: string }) {
+  const long = text.split("\n").length > 8 || text.length > 700;
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="min-w-0 rounded-r-md border-l-2 border-status-failed bg-status-failed/5 px-3 py-2">
+      <pre
+        className={cn(
+          "font-mono text-xs leading-relaxed whitespace-pre-wrap text-status-failed [overflow-wrap:anywhere]",
+          long && !open && "max-h-36 overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]",
+        )}
+      >
+        {text}
+      </pre>
+      {long && (
+        <button type="button" className="mt-1 text-xs text-muted-foreground hover:underline" onClick={() => setOpen((o) => !o)}>
+          {open ? "Show less" : "Show all"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section>
+    <section className="min-w-0">
       <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{title}</h3>
       {children}
     </section>
