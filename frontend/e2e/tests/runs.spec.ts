@@ -238,3 +238,25 @@ test("Connect autotests: steps for the chosen framework, agent shows its folder 
   });
   await expect(page.getByTestId("agent-status")).toContainText("local · ~/qa · feature-x (uncommitted changes)");
 });
+
+test("Autotests: run on the server, on a chosen branch", async ({ page }) => {
+  await login(page);
+  const { project } = await seedProject(page.request, []);
+  const claim = (data: object) => page.request.post(`/api/projects/${project.id}/automation/claim`, { data });
+  await claim({ agent: "laptop", info: { mode: "local", folder: "~/qa", branch: "main" } });
+  await claim({ agent: "server", info: { mode: "repo", repo: "bitbucket.org/team/qa", default_branch: "main",
+    branches: ["main", "feature/new-flows", "release/1.2"] } });
+  await page.goto(`/projects/${project.id}/autotests`);
+  const target = page.getByTestId("run-target");
+  await target.getByText("Server · server").click();
+  await expect(target.getByRole("combobox")).toContainText("main");
+  await target.getByRole("combobox").click();
+  await page.getByRole("option", { name: "feature/new-flows" }).click();
+  await page.getByRole("button", { name: "Run all" }).click();
+  await expect(page).toHaveURL(/\/runs\/\d+$/);
+  await expect(page.getByTestId("autotests-panel")).toContainText("feature/new-flows · server");
+  // The laptop can't take it; the server does, with the branch.
+  expect((await claim({ agent: "laptop", info: { mode: "local" } })).status()).toBe(204);
+  const job = await (await claim({ agent: "server", info: { mode: "repo" } })).json();
+  expect([job.branch, job.target_agent]).toEqual(["feature/new-flows", "server"]);
+});

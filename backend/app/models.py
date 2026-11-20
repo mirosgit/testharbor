@@ -371,6 +371,10 @@ class AutomationJob(Base):
     # the agent checks them against its own list and passes them to its command as environment variables.
     params: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     requested_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Only this agent may take the job (None: any agent of the project).
+    target_agent: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # The git branch a server agent checks out for the job (None: its default; local agents run their folder).
+    branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
     agent: Mapped[str | None] = mapped_column(String(200), nullable=True)
     exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)  # why it failed, or a summary

@@ -146,3 +146,22 @@ def test_agent_from_testharbor_toml_runs_selected_pytest_tests(server: str, tmp_
     assert "1 failed, 1 passed" in logs  # only the 2 parametrized runs, not test_cart_is_empty
     upload = next(b for p, b in _Server.calls if "/runs/import-junit" in p)
     assert b"test_pay_by_card[amex]" in upload and b"test_cart_is_empty" not in upload
+
+
+def test_secrets_run_for_local_agents_only(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    (tmp_path / "testharbor.json").write_text(json.dumps({
+        "url": "http://127.0.0.1:9", "project": 1, "framework": "pytest",
+        "secrets": [f"{sys.executable} -c \"open('secrets-ran', 'w').write('1')\""],
+    }))
+    monkeypatch.setenv("TESTHARBOR_TOKEN", "th_x")
+    started: list[object] = []
+    monkeypatch.setattr("testharbor_cli.agent.run_agent", lambda cfg, log=print: started.append(cfg) or 0)
+    assert main(["agent", "--cwd", str(tmp_path)]) == 0
+    assert (tmp_path / "secrets-ran").exists() and started
+    (tmp_path / "secrets-ran").unlink()
+    assert main(["agent", "--cwd", str(tmp_path), "--no-secrets"]) == 0
+    assert not (tmp_path / "secrets-ran").exists()
+    conf = json.loads((tmp_path / "testharbor.json").read_text())
+    conf["secrets"] = f"{sys.executable} -c \"raise SystemExit(4)\""
+    (tmp_path / "testharbor.json").write_text(json.dumps(conf))
+    assert main(["agent", "--cwd", str(tmp_path)]) == 2  # failed secrets: the agent does not start

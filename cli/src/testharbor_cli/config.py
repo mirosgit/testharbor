@@ -10,6 +10,9 @@
     # catalog = "auto"              # auto (built in for playwright/pytest) | a JSON file | "" (none)
     # options = "testharbor-options.json"
     # prepare = "..."               # runs before reading options/catalog (e.g. a generator)
+    # setup = ["uv sync --locked"]  # server agents only: after checking out a branch, before anything else
+    # secrets = "./get-secrets.sh"  # local agents only: runs in your terminal when the agent starts (an MFA
+    #                               # code, a vault login…); server agents get secrets from their tests.env
 
 The token is never in this file: TESTHARBOR_TOKEN comes from the environment or from the `.env`
 next to the config (only TESTHARBOR_* lines are read from it). Command-line flags win over the
@@ -34,7 +37,7 @@ FRAMEWORKS = ("playwright", "pytest", "custom")
 SELECT_MODES = ("grep", "args", "env", "none")
 KEYS = {
     "url", "project", "framework", "command", "report", "report_url", "select", "grep_arg", "catalog",
-    "options", "prepare", "auto_create", "name", "poll", "env",
+    "options", "prepare", "setup", "secrets", "auto_create", "name", "poll", "env",
 }
 
 # What each framework gets unless the config says otherwise.
@@ -100,6 +103,13 @@ def load_config(path: Path) -> dict[str, Any]:
         raise CliError(f"{path}: env must be a table of strings")
     preset = PRESETS[framework]
     merged = {**preset, **data, "env": {**preset["env"], **data.get("env", {})}, "framework": framework}
+    for key in ("setup", "secrets"):
+        commands = merged.get(key, [])
+        if isinstance(commands, str):
+            commands = [commands]
+        if not (isinstance(commands, list) and all(isinstance(c, str) for c in commands)):
+            raise CliError(f"{path}: {key} must be a command or a list of commands")
+        merged[key] = commands
     if not merged.get("command"):
         raise CliError(f"{path}: set `command` (how to run the tests)")
     if not merged.get("report"):
@@ -196,3 +206,51 @@ def env_is_ignored(folder: Path) -> bool | None:
     except (OSError, subprocess.SubprocessError):
         return None
     return {0: True, 1: False}.get(done.returncode)
+
+
+def agent_kwargs(conf: dict[str, Any], cwd: Path, read_options: bool = True) -> dict[str, Any]:
+    """AgentConfig fields from a loaded testharbor.toml (connection and flags are added by the caller).
+    read_options=False: the options file is read later (after `prepare` wrote it)."""
+    from .agent import load_options
+
+    options_file = conf.get("options")
+    options = []
+    if options_file and read_options and not conf.get("prepare"):
+        options = load_options(cwd / str(options_file))
+    return {
+        "command": str(conf.get("command") or "npx playwright test"),
+        "report": Path(str(conf.get("report") or "reports/results.json")),
+        "cwd": cwd,
+        "options": options,
+        "options_file": Path(str(options_file)) if options_file else None,
+        "catalog": str(conf["catalog"]) if conf.get("catalog") else None,
+        "framework": str(conf.get("framework", "custom")),
+        "select": str(conf.get("select", "")),
+        "prepare": str(conf.get("prepare", "")),
+        "extra_env": dict(conf.get("env", {})),
+        "report_url": str(conf.get("report_url", "")),
+        "auto_create": bool(conf.get("auto_create")),
+        "grep_arg": str(conf.get("grep_arg", "--grep")),
+    }
+
+
+def run_secrets(commands: list[str], cwd: Path) -> None:
+    """The `secrets` commands of a local agent, in the user's terminal (they may ask for an MFA code)."""
+    import sys
+
+    for command in commands:
+        args = shlex.split(command, posix=os.name != "nt")
+        if args and (exe := shutil.which(args[0])):
+            args[0] = exe
+        print(f"testcli: secrets: {command}", flush=True)
+        if not sys.stdin.isatty():
+            print("testcli: (no terminal to type into: if it asks for input, run it yourself first and start the "
+                  "agent with --no-secrets)", flush=True)
+        env = {k: v for k, v in os.environ.items() if k not in ("TESTHARBOR_TOKEN", "TESTHARBOR_GIT_TOKEN")}
+        try:
+            code = subprocess.run(args, cwd=cwd, env=env).returncode
+        except OSError as e:
+            raise CliError(f"secrets `{command}` could not start: {e}") from e
+        if code != 0:
+            raise CliError(f"secrets `{command}` exited with code {code} (skip it with --no-secrets if the "
+                           "secrets are still valid)")

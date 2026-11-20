@@ -672,6 +672,18 @@ def check_params(params: dict[str, ParamValue]) -> dict[str, ParamValue]:
     return params
 
 
+BRANCH_NAME = re.compile(r"^(?!-)(?!.*\.\.)(?!.*//)[A-Za-z0-9._/@+-]{1,255}(?<![./])$")
+
+
+def check_branch(value: str | None) -> str | None:
+    """A plain git branch name (the agent passes it to git as an argument, never to a shell)."""
+    if value is None or value == "":
+        return None
+    if not BRANCH_NAME.match(value) or value.endswith(".lock"):
+        raise ValueError(f"Invalid branch name {value!r}")
+    return value
+
+
 class AgentChoice(BaseModel):
     value: str = Field(max_length=200)
     label: str = Field(default="", max_length=200)
@@ -696,6 +708,8 @@ class JobIn(BaseModel):
     case_ids: list[int] = Field(default=[], max_length=5000)  # only these cases; empty = all tests
     only_failed: bool = False  # with run_id: the run's failed cases
     params: Annotated[dict[str, ParamValue], AfterValidator(check_params)] = {}  # run options of the agent
+    agent: str | None = Field(default=None, max_length=200)  # only this agent may take it
+    branch: Annotated[str | None, AfterValidator(check_branch)] = None  # for a server agent
 
 
 class CatalogTest(BaseModel):
@@ -707,6 +721,8 @@ class CatalogTest(BaseModel):
     description: str = Field(default="", max_length=50_000)
     preconditions: str = Field(default="", max_length=50_000)
     steps: list[Step] = Field(default=[], max_length=300)
+    # The outcome of the whole test; when not given, the expected result of the last step.
+    expected_result: str | None = Field(default=None, max_length=50_000)
     roles: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default=[], max_length=200)
     tags: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default=[], max_length=50)
     case_ids: list[int] = Field(default=[], max_length=50)  # cases the test is tagged with
@@ -776,6 +792,8 @@ class JobOut(ORM):
     status: JobStatus
     case_ids: list[int]
     params: dict[str, ParamValue] = {}
+    target_agent: str | None = None
+    branch: str | None = None
     # Only in the answer to an agent's claim: automation keys of the job's cases, so a runner can
     # select tests by them (the ids are in case_ids).
     automation_keys: list[str] = []
@@ -801,6 +819,10 @@ class AgentInfo(BaseModel):
     commit: str | None = Field(default=None, max_length=64)
     dirty: bool | None = None  # uncommitted changes in a local folder
     framework: str | None = Field(default=None, max_length=50)
+    # A server agent ("repo"): the repository (no credentials) and its branches to pick from.
+    repo: str | None = Field(default=None, max_length=500)
+    default_branch: str | None = Field(default=None, max_length=255)
+    branches: list[Annotated[str, Field(max_length=255)]] = Field(default=[], max_length=2000)
 
 
 class AgentClaim(BaseModel):

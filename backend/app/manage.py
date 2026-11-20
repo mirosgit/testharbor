@@ -4,6 +4,7 @@
     docker compose exec backend python -m app.manage reset-password --email anna@example.com
     docker compose exec backend python -m app.manage unlock --email anna@example.com
     docker compose exec backend python -m app.manage list-users
+    docker compose exec backend python -m app.manage create-agent-token   # a token for a test runner
 
 For scripts, pass the password on stdin with `--password-stdin` (use `exec -T`).
 """
@@ -17,9 +18,11 @@ import sys
 
 from sqlalchemy import select
 
-from app.auth import hash_password, normalize_email, password_problem
+from app.auth import generate_token, hash_password, hash_token, normalize_email, password_problem
 from app.db import SessionLocal, engine
-from app.models import Role, User
+from app.models import ApiToken, Role, User
+
+AGENT_EMAIL = "agent@testharbor.local"
 
 
 class Abort(Exception):
@@ -106,6 +109,27 @@ async def list_users(_: argparse.Namespace) -> None:
         print(f"{u.id:>4}  {u.email:<40} {u.role.value:<7} {state:<12} {u.name}")
 
 
+async def create_agent_token(args: argparse.Namespace) -> None:
+    """A token for `testcli agent`, owned by a service user nobody signs in as (role Tester)."""
+    import secrets
+
+    async with SessionLocal() as session:
+        user = await session.scalar(select(User).where(User.email == AGENT_EMAIL))
+        if user is None:
+            user = User(email=AGENT_EMAIL, name="Autotests agent", role=Role.tester,
+                        password_hash=hash_password(secrets.token_urlsafe(48)))  # unknown to anyone
+            session.add(user)
+            await session.flush()
+        token = generate_token()
+        session.add(ApiToken(user_id=user.id, name=args.name, token_hash=hash_token(token), prefix=token[:10]))
+        await session.commit()
+    if args.quiet:
+        print(token)
+    else:
+        print(f"Token for {args.name!r} (user {AGENT_EMAIL}); it is shown only now:\n\n  {token}\n")
+        print("Revoke it in Settings › API tokens of that user, or create another one with this command.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="python -m app.manage", description="TestHarbor account management")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -128,6 +152,11 @@ def build_parser() -> argparse.ArgumentParser:
     u.set_defaults(func=unlock)
 
     sub.add_parser("list-users", help="list accounts").set_defaults(func=list_users)
+
+    t = sub.add_parser("create-agent-token", help="an API token for `testcli agent` (a service user, role Tester)")
+    t.add_argument("--name", default="test runner", help="what the token is for (shown in the token list)")
+    t.add_argument("--quiet", action="store_true", help="print only the token")
+    t.set_defaults(func=create_agent_token)
     return p
 
 

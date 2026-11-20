@@ -166,10 +166,54 @@ def _fail(message: str) -> int:
     return EXIT_USAGE
 
 
+def cmd_repo_agent(args: argparse.Namespace) -> int:
+    """`testcli agent --repo URL`: a server agent running branches of a repository."""
+    import re
+    import socket
+
+    from .config import read_dotenv
+    from .repo import RepoAgent, display_url, run_repo_agent
+
+    dotenv = read_dotenv(Path.cwd())
+
+    def env(name: str) -> str:
+        return os.environ.get(name) or dotenv.get(name, "")
+
+    url = args.url or env("TESTHARBOR_URL")
+    token = args.token or env("TESTHARBOR_TOKEN")
+    project = args.project or env("TESTHARBOR_PROJECT")
+    repo = args.repo or env("TESTHARBOR_REPO")
+    missing = [n for n, v in (("TESTHARBOR_URL", url), ("TESTHARBOR_TOKEN", token), ("TESTHARBOR_PROJECT", project))
+               if not v]
+    if missing:
+        return _fail(f"missing {', '.join(missing)}")
+    if not project.isdigit():
+        return _fail(f"project must be a numeric project id, got {project!r}")
+    env_file = args.env_file or env("TESTHARBOR_TESTS_ENV")
+    if env_file and not Path(env_file).is_file():
+        return _fail(f"--env-file {env_file} not found (the tests' .env with their passwords)")
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", display_url(repo)).strip("-") or "repo"
+    workdir = Path(args.workdir or env("TESTHARBOR_WORKDIR") or Path.home() / ".cache" / "testharbor" / slug)
+    if "TESTHARBOR_GIT_TOKEN" not in os.environ and dotenv.get("TESTHARBOR_GIT_TOKEN"):
+        os.environ["TESTHARBOR_GIT_TOKEN"] = dotenv["TESTHARBOR_GIT_TOKEN"]  # read by git through GIT_ASKPASS
+    if "TESTHARBOR_GIT_USER" not in os.environ and dotenv.get("TESTHARBOR_GIT_USER"):
+        os.environ["TESTHARBOR_GIT_USER"] = dotenv["TESTHARBOR_GIT_USER"]
+    return run_repo_agent(RepoAgent(
+        url=url, token=token, project=int(project), repo=repo, workdir=workdir,
+        name=args.name or env("TESTHARBOR_AGENT_NAME") or f"{socket.gethostname()} (server)",
+        env_file=Path(env_file) if env_file else None,
+        secret_files=Path(sf) if (sf := args.secret_files or env("TESTHARBOR_SECRET_FILES")) else None,
+        branch=args.branch or env("TESTHARBOR_BRANCH"),
+        subdir=args.repo_path or env("TESTHARBOR_REPO_PATH"), poll=args.poll or 3.0, once=args.once,
+    ))
+
+
 def cmd_agent(args: argparse.Namespace) -> int:
     from .agent import AgentConfig, load_options, run_agent
     from .config import find_config, load_config, read_dotenv
 
+    if args.repo or os.environ.get("TESTHARBOR_REPO"):
+        return cmd_repo_agent(args)
     start = Path(args.cwd or ".").resolve()
     if not start.is_dir():
         return _fail(f"--cwd {args.cwd} is not a directory")
@@ -229,6 +273,13 @@ def cmd_agent(args: argparse.Namespace) -> int:
     )
     if path:
         print(f"testcli: settings from {path}")
+    if conf.get("secrets") and not args.no_secrets:
+        from .config import run_secrets
+
+        try:
+            run_secrets(conf["secrets"], cwd)
+        except CliError as e:
+            return _fail(str(e))
     return run_agent(cfg)
 
 
@@ -311,11 +362,27 @@ def build_parser() -> argparse.ArgumentParser:
     ag.add_argument("--catalog",
                     help="JSON file listing the tests ({\"tests\": [{key, title, path, steps…}]}), sent when the "
                          "agent starts; synced into cases in TestHarbor after a preview")
+    ag.add_argument("--no-secrets", action="store_true",
+                    help="don't run the `secrets` commands of testharbor.toml at start (they are still valid)")
     ag.add_argument("--name", help="agent name shown in TestHarbor (default: host name)")
     ag.add_argument("--poll", type=float, help="seconds between checks for new jobs (default 3)")
     ag.add_argument("--once", action="store_true", help="exit after one job")
     ag.add_argument("--url", help="TestHarbor base URL (or TESTHARBOR_URL)")
     ag.add_argument("--token", help="API token (or TESTHARBOR_TOKEN; prefer the env var)")
+    srv = ag.add_argument_group(
+        "server mode", "Run branches of a git repository in clean checkouts instead of a folder "
+                       "(credentials: TESTHARBOR_GIT_TOKEN / TESTHARBOR_GIT_USER, or the machine's SSH key)")
+    srv.add_argument("--repo", help="git URL of the tests (or TESTHARBOR_REPO), e.g. "
+                                    "https://bitbucket.org/team/qa-tests.git")
+    srv.add_argument("--branch", help="default branch (or TESTHARBOR_BRANCH; default: the repository's)")
+    srv.add_argument("--repo-path", help="folder of testharbor.toml in the repository (or TESTHARBOR_REPO_PATH; "
+                                         "default: found)")
+    srv.add_argument("--env-file", help="the tests' .env (passwords), copied into every checkout "
+                                        "(or TESTHARBOR_TESTS_ENV)")
+    srv.add_argument("--secret-files", help="a folder copied into every checkout as is, e.g. with "
+                                            "config/credentials.ini (or TESTHARBOR_SECRET_FILES)")
+    srv.add_argument("--workdir", help="where the clone and checkouts live (or TESTHARBOR_WORKDIR; "
+                                       "default ~/.cache/testharbor/<repo>)")
     ag.set_defaults(func=cmd_agent)
 
     ini = sub.add_parser("init", help="write a testharbor.toml for the tests in this folder",

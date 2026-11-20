@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -117,8 +117,9 @@ async def start_job(project_id: int, body: JobIn, session: Session, principal: C
         await session.flush()
     await add_cases_to_run(session, run.id, case_ids)
 
+    target = " ".join(body.agent.split()) if body.agent else None
     job = AutomationJob(project_id=project_id, run_id=run.id, case_ids=case_ids, params=body.params,
-                        requested_by_id=principal.user.id)
+                        target_agent=target, branch=body.branch, requested_by_id=principal.user.id)
     session.add(job)
     await session.commit()
     await session.refresh(job, ["requested_by"])
@@ -182,7 +183,7 @@ async def claim_job(project_id: int, body: AgentClaim, session: Session, princip
     await get_or_404(session, Project, project_id)
     name = " ".join(body.agent.split())
     options = [o.model_dump(exclude_none=True) for o in body.options]
-    info = body.info.model_dump(exclude_none=True)
+    info = body.info.model_dump(exclude_defaults=True)
     await session.execute(
         pg_insert(AutomationAgent)
         .values(project_id=project_id, name=name, user_id=principal.user.id, last_seen_at=_now(), options=options,
@@ -193,9 +194,13 @@ async def claim_job(project_id: int, body: AgentClaim, session: Session, princip
         )
     )
     await _expire_stale(session, project_id)
+    # A job for another agent is left alone; a job for a branch needs a server (repo) agent.
+    mine = or_(AutomationJob.target_agent.is_(None), AutomationJob.target_agent == name)
+    if body.info.mode != "repo":
+        mine = and_(mine, AutomationJob.branch.is_(None))
     job = await session.scalar(
         select(AutomationJob)
-        .where(AutomationJob.project_id == project_id, AutomationJob.status == JobStatus.queued)
+        .where(AutomationJob.project_id == project_id, AutomationJob.status == JobStatus.queued, mine)
         .order_by(AutomationJob.id)
         .limit(1)
         .with_for_update(skip_locked=True, of=AutomationJob)

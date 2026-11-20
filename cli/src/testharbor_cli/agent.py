@@ -56,7 +56,7 @@ RESERVED_ENV = re.compile(
     r"JAVA_TOOL_OPTIONS|PERL5\w*|RUBYOPT|GIT_\w*|TESTHARBOR_\w*)$"
 )
 # Never handed to the tests: the agent's own credentials.
-PRIVATE_ENV = ("TESTHARBOR_TOKEN",)
+PRIVATE_ENV = ("TESTHARBOR_TOKEN", "TESTHARBOR_GIT_TOKEN")
 
 
 @dataclass
@@ -83,6 +83,7 @@ class AgentConfig:
     prepare: str = ""  # runs before options and catalog are (re)read
     extra_env: dict[str, str] = field(default_factory=dict)
     info: dict[str, Any] = field(default_factory=dict)  # shown in TestHarbor: folder, branch, changes
+    branch_name: str = ""  # a server agent's checkout is detached: the branch the job asked for
 
 
 def case_grep(case_ids: list[int]) -> str:
@@ -385,7 +386,7 @@ def _execute(cfg: AgentConfig, api: Api, job: dict, args: list[str], env: dict[s
         "run_id": str(run_id),
         "report_url": report_url,
         "auto_create": "true" if cfg.auto_create else "",
-        "branch": _git(cfg.cwd, "rev-parse", "--abbrev-ref", "HEAD"),
+        "branch": cfg.branch_name or _git(cfg.cwd, "rev-parse", "--abbrev-ref", "HEAD"),
         "commit": _git(cfg.cwd, "rev-parse", "HEAD"),
     }
     try:

@@ -79,6 +79,7 @@ async def test_sync_creates_links_updates_and_outdates(client: AsyncClient, make
     assert full["title"] == "Orders are filtered by customer"
     assert (full["type"], full["automation_status"], full["automation_key"]) == ("smoke", "automated", "t.py::test_filter")
     assert full["roles"] == ["Super Admin (SA)", "Admin"]  # the project's spelling
+    assert full["expected_result"] == 'Then the message "Discount Applied" is shown'  # the last step's
     assert full["preconditions"] == "- Given an order exists" and full["steps"][0]["action"] == "When I add a discount code  \nAnd I save it"
     sections = (await client.get(f"/api/suites/{auto['id']}/sections")).json()
     by_id = {x["id"]: x for x in sections}
@@ -96,6 +97,9 @@ async def test_sync_creates_links_updates_and_outdates(client: AsyncClient, make
     assert p2["counts"] == {"create": 0, "link": 0, "update": 1, "outdated": 0, "unchanged": 1}
     assert next(i for i in p2["items"] if i["action"] == "update")["changes"] == ["title"]
     assert (await _apply(client, pid, p2)).json()["updated"] == 1
+    # An explicit expected result wins over the last step's.
+    p_exp = await _upload(client, pid, [tests[0], {**tests2[1], "expected_result": "Only matching orders are listed"}])
+    assert next(i for i in p_exp["items"] if i["action"] == "update")["changes"] == ["expected_result"]
     p3 = await _upload(client, pid, [tests[0]])
     assert p3["counts"]["outdated"] == 1
     assert (await _apply(client, pid, p3)).json()["outdated"] == 1
@@ -170,4 +174,4 @@ async def test_agent_info_is_shown(client: AsyncClient, make) -> None:  # type: 
             "framework": "pytest"}
     await client.post(f"/api/projects/{p['id']}/automation/claim", json={"agent": "laptop", "info": info})
     (agent,) = (await client.get(f"/api/projects/{p['id']}/automation/agents")).json()
-    assert agent["info"] == info
+    assert agent["info"] == {**info, "repo": None, "default_branch": None, "branches": []}

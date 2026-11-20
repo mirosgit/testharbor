@@ -49,6 +49,34 @@ services:
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
 
+  # Runs autotests from TestHarbor: a git branch of your test repository, picked when starting a run.
+  # Setup: docs/runner.md (RUNNER_* in .env, the tests' .env in runner-secrets/tests.env), then `make runner`.
+  runner:
+    build:
+      context: .
+      dockerfile: deploy/runner/Dockerfile
+    profiles: ["runner"]
+    restart: unless-stopped
+    ipc: host
+    environment:
+      TESTHARBOR_URL: http://backend:8000
+      TESTHARBOR_TOKEN: ${RUNNER_TOKEN:-}
+      TESTHARBOR_PROJECT: ${RUNNER_PROJECT:-}
+      TESTHARBOR_REPO: ${RUNNER_REPO:-}
+      TESTHARBOR_BRANCH: ${RUNNER_BRANCH:-}
+      TESTHARBOR_REPO_PATH: ${RUNNER_REPO_PATH:-}
+      TESTHARBOR_GIT_USER: ${RUNNER_GIT_USER:-}
+      TESTHARBOR_GIT_TOKEN: ${RUNNER_GIT_TOKEN:-}
+      TESTHARBOR_AGENT_NAME: ${RUNNER_NAME:-server}
+      TESTHARBOR_WORKDIR: /work
+    volumes:
+      - runner-work:/work
+      - runner-cache:/root/.cache
+      - ./runner-secrets:/secrets:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+
   # Playwright smoke tests: docker compose --profile e2e run --rm e2e
   e2e:
     image: mcr.microsoft.com/playwright:v1.65.1-noble
@@ -71,5 +99,7 @@ services:
     command: sh -c "npm ci --no-audit --no-fund --loglevel=error && npx playwright test"
 
 volumes:
+  runner-work:
+  runner-cache:
   db-data:
   e2e-node-modules:

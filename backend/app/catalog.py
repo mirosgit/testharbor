@@ -44,7 +44,7 @@ SUGGESTION_MIN_SCORE = 0.45
 MAX_SUGGESTIONS = 3
 
 Action = Literal["create", "update", "link", "unchanged", "outdated"]
-MANAGED_FIELDS = ("title", "description", "preconditions", "steps", "roles", "tags")
+MANAGED_FIELDS = ("title", "description", "preconditions", "steps", "expected_result", "roles", "tags")
 
 
 @dataclass
@@ -111,6 +111,8 @@ def _content(test: CatalogTest, project_roles: list[str]) -> dict[str, object]:
         "description": test.description,
         "preconditions": test.preconditions,
         "steps": [{"action": _lines(s.action), "expected": _lines(s.expected)} for s in test.steps],
+        "expected_result": _lines(test.expected_result if test.expected_result is not None else next(
+            (s.expected for s in reversed(test.steps) if s.expected.strip()), "")),
         "roles": _roles(test.roles, project_roles),
         "tags": list(dict.fromkeys(test.tags)),
     }

@@ -49,6 +49,9 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
   - `testcli upload` CLI, which detects the branch, commit and build URL in CI.
   - Playwright's JSON report is accepted too: each case in the run links to its test in
     Playwright's HTML report.
+  - **On your machine or on a server**: a local agent runs a folder as it is; the server runner
+    (`make runner`, [docs/runner.md](docs/runner.md)) runs the branch you pick, freshly pulled from
+    Bitbucket, GitHub or GitLab.
   - **Connect in minutes**: `testcli init` writes a `testharbor.toml` for Playwright or pytest,
     then `testcli agent` runs in the tests' folder. The Autotests tab has a step-by-step guide.
   - **Run autotests from TestHarbor**: all of them, selected cases or a run's failed cases.

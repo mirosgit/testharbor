@@ -1,10 +1,10 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Loader2, Play } from "lucide-react";
+import { Bot, Laptop, Loader2, Play, Server } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { useCatalog } from "@/components/cases/catalog-sync";
@@ -19,6 +19,7 @@ import {
   RunOptionsForm,
 } from "@/components/runs/run-options";
 import { runnable, TestPicker } from "@/components/runs/test-picker";
+import { Combobox } from "@/components/combobox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,6 +35,22 @@ const STATUS: Record<JobStatus, { label: string; tone: string }> = {
   cancelled: { label: "Cancelled", tone: "text-muted-foreground" },
 };
 
+function readStored(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStored(key: string, value: string) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Private mode or blocked storage: the first online agent is picked next time.
+  }
+}
+
 const defaultName = () => `Autotests ${new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`;
 
 export default function AutotestsPage() {
@@ -47,7 +64,25 @@ export default function AutotestsPage() {
     queryFn: () => api.agents(projectId),
     refetchInterval: 5000,
   });
-  const runOptions = optionsAgent(agents)?.options ?? [];
+  const online = useMemo(() => (agents ?? []).filter((a) => a.online), [agents]);
+  const [target, setTarget] = useState<string | null>(null);
+  const [branch, setBranch] = useState<string | null>(null);
+  // Where to run: the last choice if that agent is online, else the first online agent.
+  useEffect(() => {
+    if (!online.length) return;
+    if (target && online.some((a) => a.name === target)) return;
+    const last = readStored(`testharbor.run-target.${projectId}`);
+    setTarget(online.some((a) => a.name === last) ? last : online[0].name);
+  }, [online, target, projectId]);
+  const targetAgent = online.find((a) => a.name === target);
+  const onServer = targetAgent?.info?.mode === "repo";
+  const branches = targetAgent?.info?.branches ?? [];
+  useEffect(() => {
+    if (!onServer) return;
+    setBranch((b) => (b && branches.includes(b) ? b : (targetAgent?.info?.default_branch ?? branches[0] ?? null)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onServer, target, branches.join("\n")]);
+  const runOptions = (targetAgent?.options.length ? targetAgent : optionsAgent(agents))?.options ?? [];
   const optionsKey = JSON.stringify(runOptions);
   const [params, setParams] = useState<RunParams>({});
   useEffect(() => {
@@ -82,7 +117,10 @@ export default function AutotestsPage() {
         name: name.trim() || defaultName(),
         case_ids: caseIds,
         params: runOptions.length ? params : {},
+        ...(targetAgent ? { agent: targetAgent.name } : {}),
+        ...(onServer && branch ? { branch } : {}),
       });
+      if (targetAgent) writeStored(`testharbor.run-target.${projectId}`, targetAgent.name);
       if (runOptions.length) rememberParams(projectId, params);
       toast.success("Autotests queued");
       qc.invalidateQueries({ queryKey: ["autotest-jobs", projectId] });
@@ -120,7 +158,55 @@ export default function AutotestsPage() {
         </section>
 
         <aside className="grid min-w-0 content-start gap-5 lg:sticky lg:top-0">
-          <AgentStatus projectId={projectId} />
+          {online.length > 0 ? (
+            <fieldset className="grid min-w-0 gap-2" data-testid="run-target">
+              <legend className="mb-2 text-sm font-medium">Run on</legend>
+              {online.map((a) => (
+                <label
+                  key={a.name}
+                  className={cn(
+                    "grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-start gap-x-2 rounded-md border px-3 py-2 text-sm",
+                    target === a.name && "border-primary bg-primary/5",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="run-target"
+                    className="mt-1 accent-primary"
+                    checked={target === a.name}
+                    onChange={() => setTarget(a.name)}
+                  />
+                  <span className="grid min-w-0">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      {a.info?.mode === "repo" ? <Server className="size-3.5" /> : <Laptop className="size-3.5" />}
+                      {a.info?.mode === "repo" ? "Server" : "Local folder"} · {a.name}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {a.info?.mode === "repo"
+                        ? `${a.info.repo ?? ""}: a fresh checkout of the branch`
+                        : `${a.info?.folder ?? ""}${a.info?.branch ? ` · ${a.info.branch}` : ""}${a.info?.dirty ? " (uncommitted changes)" : ""}`}
+                    </span>
+                  </span>
+                </label>
+              ))}
+              {onServer && (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="run-branch">Branch</Label>
+                  <Combobox
+                    id="run-branch"
+                    value={branch}
+                    onChange={setBranch}
+                    options={branches}
+                    placeholder="Choose a branch"
+                    searchPlaceholder="Search branches"
+                  />
+                  <span className="text-xs text-muted-foreground">Its latest commit is pulled before the run.</span>
+                </div>
+              )}
+            </fieldset>
+          ) : (
+            <AgentStatus projectId={projectId} />
+          )}
           <div className="grid gap-2">
             <Label htmlFor="autotests-run-name">Run name</Label>
             <Input
@@ -177,6 +263,8 @@ function RecentJobs({
               </span>
               <span className="text-xs text-muted-foreground">
                 R{j.run_id} · {j.case_ids.length ? `${j.case_ids.length} tests` : "all tests"}
+                {j.branch && ` · ${j.branch}`}
+                {(j.agent ?? j.target_agent) && ` · ${j.agent ?? j.target_agent}`}
                 {j.requested_by_name && ` · ${j.requested_by_name}`}
               </span>
               {Object.keys(j.params ?? {}).length > 0 && (

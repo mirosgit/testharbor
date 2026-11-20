@@ -46,6 +46,12 @@ function config(fw: Framework, url: string, projectId: number): string {
   ].join("\n");
 }
 
+const SETUP_EXAMPLE: Record<Framework, string> = {
+  playwright: 'setup = ["npm ci", "npx playwright install chromium"]',
+  pytest: 'setup = ["uv sync --locked", "uv run playwright install chromium"]   # or pip install -r requirements.txt',
+  custom: 'setup = ["uv sync --locked"]   # whatever a fresh clone needs before the tests run',
+};
+
 const CATALOG_EXAMPLE = `{"tests": [{
   "key": "tests/checkout.py::test_pay_by_card",
   "title": "Pay by card",
@@ -65,6 +71,7 @@ export default function ConnectAutotestsPage() {
   const { projectId: pid } = useParams<{ projectId: string }>();
   const projectId = Number(pid);
   const [fw, setFw] = useState<Framework>("playwright");
+  const [mode, setMode] = useState<"local" | "server">("local");
   const [origin, setOrigin] = useState("");
   useEffect(() => setOrigin(window.location.origin), []);
   const url = origin || "https://testharbor.example.com";
@@ -90,6 +97,33 @@ export default function ConnectAutotestsPage() {
         <AgentStatus projectId={projectId} />
 
         <div className="grid gap-2">
+          <h2 className="text-sm font-medium">Run the tests</h2>
+          <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Where the tests run">
+            {(
+              [
+                ["local", "On my computer", "From a folder you choose, as it is: uncommitted changes too"],
+                ["server", "On a server", "A git branch you pick when starting a run, freshly pulled"],
+              ] as const
+            ).map(([key, label, detail]) => (
+              <button
+                key={key}
+                type="button"
+                role="radio"
+                aria-checked={mode === key}
+                onClick={() => setMode(key)}
+                className={cn(
+                  "grid rounded-md border px-3 py-2 text-left text-sm",
+                  mode === key ? "border-primary bg-primary/5" : "hover:bg-muted",
+                )}
+              >
+                <span className="font-medium">{label}</span>
+                <span className="text-xs text-muted-foreground">{detail}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-2">
           <h2 className="text-sm font-medium">Your tests use</h2>
           <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Test framework">
             {FRAMEWORKS.map((f) => (
@@ -111,6 +145,8 @@ export default function ConnectAutotestsPage() {
           </div>
         </div>
 
+        {mode === "local" ? (
+          <>
         <Step n={1} title="Install testcli (once per machine)">
           <Code text={INSTALL} />
           <p className="text-xs text-muted-foreground">
@@ -146,22 +182,87 @@ export default function ConnectAutotestsPage() {
           </p>
         </Step>
 
-        <Step n={4} title="Start the agent">
-          <Code text="testcli agent" />
+        <Step n={4} title="Start the agent in that folder">
+          <Code text={"testcli agent\n# or from anywhere:  testcli agent --cwd ~/path/to/your/tests"} />
           <p className="text-xs text-muted-foreground">
             It runs the tests from this folder as they are, uncommitted changes included, and shows the folder and
             branch here. Keep it running; after every run it re-reads the list of tests.
           </p>
+          <p className="text-xs text-muted-foreground">
+            <b>Secrets.</b> If your tests need secrets you get with a script (an MFA code, a vault login, a session
+            that expires), put that command into <code>testharbor.toml</code>:{" "}
+            <code>secrets = &quot;./get-secrets.sh&quot;</code>. The agent runs it in your terminal when it starts, so
+            you can type the code; skip it with <code>testcli agent --no-secrets</code> while they are still valid.
+            Runs on a server don&apos;t use it: there the secrets live on the server.
+          </p>
         </Step>
 
-        <Step n={5} title="Run tests from TestHarbor">
+          </>
+        ) : (
+          <>
+        <Step n={1} title="Commit testharbor.toml to the test repository">
+          <p className="text-sm">
+            Run <code>testcli init</code> in the repository (see “On my computer”) and add how to install the tests on
+            a clean checkout:
+          </p>
+          <Code text={SETUP_EXAMPLE[fw]} />
+        </Step>
+
+        <Step n={2} title="Give the server access to the repository">
+          <p className="text-sm">
+            Bitbucket: Repository settings › <b>Access tokens</b> › create one with <i>Repositories: Read</i>. GitHub: a
+            fine-grained token with <i>Contents: read</i>. GitLab: a project access token with <i>read_repository</i>.
+          </p>
+        </Step>
+
+        <Step n={3} title="Settings, in the TestHarbor folder on the server">
+          <Code
+            text={[
+              "make runner-token          # prints a TestHarbor token for the runner (prod: make prod-runner-token)",
+              "",
+              "# then add to .env:",
+              "RUNNER_TOKEN=th_...",
+              `RUNNER_PROJECT=${projectId}`,
+              "RUNNER_REPO=https://bitbucket.org/your-team/your-tests.git",
+              "RUNNER_GIT_TOKEN=<the access token>",
+            ].join("\n")}
+          />
+        </Step>
+
+        <Step n={4} title="The tests' secrets (if they have any)">
+          <Code
+            text={[
+              "mkdir -p runner-secrets",
+              "cp ~/your-tests/.env runner-secrets/tests.env          # becomes .env of every checkout",
+              "# other secret files go to runner-secrets/files/ at their paths, e.g.",
+              "#   runner-secrets/files/config/credentials.ini",
+            ].join("\n")}
+          />
+          <p className="text-xs text-muted-foreground">
+            <code>runner-secrets/</code> is git-ignored and mounted read-only into the runner.
+          </p>
+        </Step>
+
+        <Step n={5} title="Start the runner">
+          <Code text={"make runner            # production stack: make prod-runner\ndocker compose logs -f runner"} />
+          <p className="text-xs text-muted-foreground">
+            It shows up above as <b>Server</b>. Every run fetches the repository, checks the chosen branch out at its
+            latest commit, runs <code>setup</code> and the tests, sends the results and removes the checkout.
+            Dependencies and browsers are cached between runs.
+          </p>
+        </Step>
+
+          </>
+        )}
+
+        <Step n={6} title="Run tests from TestHarbor">
           <p className="text-sm">
             Open{" "}
             <Link href={`/projects/${projectId}/autotests`} className="text-primary underline">
               Autotests
             </Link>
             , press <b>Sync autotests</b> once to create cases for the tests (or link them to existing cases), tick the
-            tests and press <b>Run selected</b>.
+            tests, choose where to run (and the branch, on a server) and press <b>Run selected</b>.
           </p>
           {fw === "playwright" && (
             <p className="text-xs text-muted-foreground">
@@ -178,7 +279,7 @@ export default function ConnectAutotestsPage() {
         </Step>
 
         {fw === "custom" && (
-          <Step n={6} title="What your runner gets and gives">
+          <Step n={7} title="What your runner gets and gives">
             <ul className="grid list-disc gap-1 pl-5 text-sm">
               <li>
                 <code>$TESTHARBOR_SELECTION</code>: a JSON file{" "}
@@ -201,10 +302,6 @@ export default function ConnectAutotestsPage() {
           </Step>
         )}
 
-        <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-          Coming next: a server agent that runs a chosen git branch in a clean checkout, and choosing which agent runs
-          a job.
-        </p>
       </div>
     </main>
   );

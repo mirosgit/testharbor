@@ -110,7 +110,15 @@ export interface Paging {
 export const api = {
   startAutotests: (
     projectId: number,
-    body: { run_id?: number; name?: string; case_ids?: number[]; only_failed?: boolean; params?: RunParams },
+    body: {
+      run_id?: number;
+      name?: string;
+      case_ids?: number[];
+      only_failed?: boolean;
+      params?: RunParams;
+      agent?: string;
+      branch?: string;
+    },
   ) => request<AutomationJob>(`/api/projects/${projectId}/automation/jobs`, json("POST", body)),
   autotestJobs: (projectId: number, runId?: number) =>
     request<AutomationJob[]>(

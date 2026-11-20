@@ -375,6 +375,10 @@ export interface AutomationJob {
   case_ids: number[];
   /** Values of the agent's run options (environment variables of its command). */
   params: RunParams;
+  /** Only this agent may take the job. */
+  target_agent: string | null;
+  /** The git branch a server agent runs. */
+  branch: string | null;
   agent: string | null;
   exit_code: number | null;
   message: string | null;
@@ -410,6 +414,10 @@ export interface AgentInfo {
   /** Uncommitted changes in a local folder. */
   dirty?: boolean | null;
   framework?: string | null;
+  /** A server agent: its repository (no credentials) and branches. */
+  repo?: string | null;
+  default_branch?: string | null;
+  branches?: string[];
 }
 
 export interface AutomationAgent {

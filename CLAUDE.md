@@ -5,7 +5,7 @@ TestHarbor is a self-hosted, open-source test case management tool, in the spiri
 - One instance serves one company.
 - People work in it through the web UI. Automated tests report into it through a REST API, a CLI and an agent.
 
-Read this file first, then `docs/PLAN.md`. It holds the design decisions and notes from every phase so far, Phase 1 to 17.
+Read this file first, then `docs/PLAN.md`. It holds the design decisions and notes from every phase so far, Phase 1 to 18.
 
 ## Ground rules
 
@@ -26,7 +26,7 @@ Read this file first, then `docs/PLAN.md`. It holds the design decisions and not
 | `frontend/e2e/` | Playwright tests (separate package, run in the `e2e` compose service) |
 | `cli/` | `testcli` (stdlib only): `upload` reports, `agent` runs tests on request (settings in `testharbor.toml`, `init` writes one; built-in catalogs in `collect.py`), plus a pytest plugin (`@pytest.mark.case`) |
 | `docs/` | `PLAN.md` (design and phase notes), `integration.md` (connecting autotests), `deployment.md`, `ci/` examples |
-| `deploy/` | Caddyfile (HTTPS in prod) and `backup.sh` |
+| `deploy/` | Caddyfile (HTTPS in prod), `backup.sh`, `runner/` (the test runner image; `docs/runner.md`) |
 
 Backend map (`backend/app/`):
 
@@ -75,7 +75,7 @@ Everything runs in Docker. Node and npm are not installed on the host.
   Review the result and add data steps if needed. Migrations apply on backend start. `tests/test_models.py` fails if models and migrations drift.
 - **Adding an npm package:** `docker run … node:22-alpine npm install <pkg>@<exact version>` in `frontend/`.
 
-At the time of writing, all tests pass: backend about 143, CLI 29, e2e 11.
+At the time of writing, all tests pass: backend about 144, CLI 34, e2e 14.
 
 ## Verification (visual)
 

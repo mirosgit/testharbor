@@ -237,6 +237,9 @@ Flags beat the environment, the environment beats the file, and the file beats t
 The token never goes into the file. With `framework = "playwright"` or `"pytest"` the agent lists the tests itself
 and runs selected ones with `--grep` of their titles, or with their node ids.
 
+To run a git branch on a server instead (picked when starting a run, latest commit pulled), see
+[runner.md](runner.md).
+
 The steps below describe the same agent configured with flags.
 
 1. On that machine, start the agent in the folder of the test project. Playwright must write a JSON report

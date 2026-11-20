@@ -39,7 +39,9 @@ const fail = (e: unknown) => toast.error(e instanceof ApiError ? e.message : "So
 /** "local · ~/qa-tests · feature-x (uncommitted changes)" */
 export function agentWhere(a: AutomationAgent): string {
   const i = a.info ?? {};
-  const parts = [i.mode === "repo" ? "server" : i.mode, i.folder, i.branch && `${i.branch}${i.dirty ? " (uncommitted changes)" : ""}`];
+  if (i.mode === "repo")
+    return ["server", i.repo, i.branches?.length ? `${i.branches.length} branches` : ""].filter(Boolean).join(" · ");
+  const parts = [i.mode, i.folder, i.branch && `${i.branch}${i.dirty ? " (uncommitted changes)" : ""}`];
   return parts.filter(Boolean).join(" · ");
 }
 
@@ -324,7 +326,8 @@ export function AutotestsPanel({
         </span>
         <span className="text-muted-foreground">
           {job.case_ids.length ? `${job.case_ids.length} cases` : "all tests"}
-          {job.agent && ` · ${job.agent}`}
+          {job.branch && ` · ${job.branch}`}
+          {(job.agent ?? job.target_agent) && ` · ${job.agent ?? job.target_agent}`}
           {job.started_at && ` · ${elapsed(job, now)}`}
           {job.exit_code != null && ` · exit ${job.exit_code}`}
           {job.requested_by_name && ` · started by ${job.requested_by_name}`}

@@ -353,3 +353,34 @@ Goal: any team connects its autotests in a few minutes. Two kinds of agents: loc
 - **`prepare`** runs at start and after every job, then options and catalog are re-read and sent, so changed tests show up without restarting the agent.
 - **Agent info (migration 0012).** `automation_agents.info` holds the mode, folder (`~`-shortened), branch, short commit, uncommitted changes and framework, shown in the agent status.
 - **UI.** Autotests › **Connect autotests** walks through install, token, `testcli init`, `.env` and `testcli agent` for the chosen framework, with the formats of the catalog and the selection for custom runners. An empty Autotests page leads there.
+
+## Phase 18: server runner (a git branch), choosing where a run goes
+
+Goal: deploy TestHarbor on a server, pick a branch of the test repository (e.g. on Bitbucket) when starting a run, and the latest commit of that branch runs, with little setup. Local agents keep running a folder as it is.
+
+- **Server agent** (`testcli agent --repo URL`, `cli/src/testharbor_cli/repo.py`).
+  - It keeps one clone (`--no-checkout`) in its workdir and fetches before every job. Each job gets a fresh worktree of `origin/<branch>`, detached at the latest commit, which is removed after the run.
+  - `testharbor.toml` is found at the root of the checkout or, if there is only one, up to two levels down; `--repo-path` picks one.
+  - The tests' secrets are copied in: `--env-file` becomes `.env` next to the config, and the `--secret-files` folder is copied at the same paths.
+  - Then `setup` (a new key, server only) runs, followed by `prepare`, options and the tests. Output goes into the job log, and the run gets the branch and commit.
+  - Options and the catalog come from the default branch (re-sent after a run on it). Branches are re-listed every minute.
+  - HTTPS credentials (`TESTHARBOR_GIT_TOKEN`, `TESTHARBOR_GIT_USER`, default `x-token-auth`) reach git only through `GIT_ASKPASS`. They are masked in errors and never passed to the tests, like `TESTHARBOR_TOKEN`.
+- **Choosing where a run goes (migration 0013).**
+  - `automation_jobs.target_agent` and `branch` exist; a branch name is validated (git-safe characters, no `..`, no leading `-`).
+  - `claim` gives an agent only jobs that are untargeted or targeted at it, and never gives a job with a branch to a local agent.
+  - Agents report `info.mode` (`local` / `repo`), and a server agent also its repository (without credentials), default branch and branches.
+  - The claim answer and the jobs list carry both fields.
+- **Docker** (`deploy/runner/`, the `runner` service of `docker-compose.yml`, profile `runner`).
+  - The image is based on the Playwright image (Node, browser libraries) plus git, uv 0.13.7 and testcli. `/root/.cache` is a volume for uv, Pythons and browsers.
+  - Settings come from `RUNNER_*` in `.env`, and secrets from `runner-secrets/` (`tests.env`, `files/`, `ssh/`), mounted read-only.
+  - `make runner` / `make prod-runner` start it, and `make runner-token` creates a token for the "Autotests agent" service user (`python -m app.manage create-agent-token`). Guide: `docs/runner.md`.
+- **Local secrets.** A new `secrets` key holds commands a local agent runs in the user's terminal when it starts, such as an MFA prompt for a short-lived session; `--no-secrets` skips them. Server agents skip them and say so in the log.
+- **Expected Result.** Catalog tests may carry `expected_result`; otherwise the last step's expected result fills the case's Expected Result. It is a managed field of catalog cases.
+- **UI.**
+  - The Autotests page has **Run on**: the online agents, local ones with their folder and branch, server ones with their repository. A server agent also gets a **Branch** picker (search, default branch first).
+  - The last choice is remembered per project. Jobs show their branch and agent.
+  - Connect autotests is split into "On my computer" and "On a server". It covers secrets in both.
+- **Verified end to end:**
+  - the image built and ran against the local stack with a git repository: tests in a subfolder, a branch with an extra failing test, a secrets file read by a test;
+  - `uv sync` worked in the container;
+  - results and branch/commit arrived on the run.
