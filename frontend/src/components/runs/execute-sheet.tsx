@@ -38,7 +38,7 @@ export function ExecuteSheet({
   return (
     <Sheet open={!!runCase} onOpenChange={(o) => !o && onClose()}>
       <SheetContent
-        className="w-full gap-0 overflow-y-auto sm:max-w-3xl xl:max-w-[min(1200px,94vw)]"
+        className="w-full gap-0 overflow-y-auto sm:max-w-3xl lg:max-w-4xl"
         data-testid="execute-sheet"
       >
         {runCase && (
@@ -122,10 +122,8 @@ function ExecuteBody({
         </div>
       </SheetHeader>
 
-      {/* Wide screens: the case on the left, adding and reading results on the right, all in view at once.
-          Narrow: the results come before the case's details. */}
-      <div className="grid min-w-0 gap-6 p-4 sm:p-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] xl:items-start [&>*]:min-w-0">
-        <div className="grid min-w-0 gap-6 [&>*]:min-w-0">
+      {/* One column: adding a result, this run's results, then the case's details. */}
+      <div className="grid min-w-0 gap-6 p-4 sm:p-6 [&>*]:min-w-0">
         {!readOnly && (
           <section className="grid gap-3 rounded-lg border bg-muted/30 p-4" aria-label="Add result">
             <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Result status">
@@ -181,8 +179,6 @@ function ExecuteBody({
             </ul>
           )}
         </Block>
-        </div>
-        <div className="grid min-w-0 gap-6 xl:order-first [&>*]:min-w-0">
         {!testCase ? (
           <Skeleton className="h-32" />
         ) : (
@@ -218,7 +214,6 @@ function ExecuteBody({
           </>
         )}
 
-        </div>
       </div>
     </>
   );
@@ -268,7 +263,7 @@ export function ResultItem({ r }: { r: TestResult }) {
           {r.stack_trace && (
             <details className="min-w-0">
               <summary className="cursor-pointer text-xs text-muted-foreground">Stack trace / log</summary>
-              <pre className="mt-1 max-h-72 overflow-auto rounded bg-muted p-2 font-mono text-[11px] leading-relaxed">
+              <pre className="mt-1 max-h-72 overflow-y-auto rounded bg-muted p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
                 {r.stack_trace}
               </pre>
             </details>
