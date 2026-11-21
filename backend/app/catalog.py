@@ -6,11 +6,12 @@ steps, roles, tags and the case ids it is tagged with. A person reviews a previe
 
 * A test tagged with a case id, or whose key is a case's automation key, belongs to that case.
   - A case created from the catalog (`catalog_managed`) follows the test: title, description,
-    preconditions, steps, roles and tags are rewritten when they change.
+    preconditions, steps, roles and tags are rewritten when they change, and the case goes back to
+    Pending review, so a person reads the new text.
   - Any other case is a person's case: only its automation key and status are set (link).
 * A new test becomes a case in the "Autotests" suite, in sections built from its path, unless the
   person links it to an existing case (similar titles are suggested, so manual cases are not
-  duplicated).
+  duplicated). It starts as Pending review: its text comes from the test's code, a person checks it.
 * A catalog case whose test is gone becomes Outdated; it is never deleted.
 
 Matching results to cases needs nothing new: reports carry the same keys as `automation_key`.
@@ -45,6 +46,8 @@ MAX_SUGGESTIONS = 3
 
 Action = Literal["create", "update", "link", "unchanged", "outdated"]
 MANAGED_FIELDS = ("title", "description", "preconditions", "steps", "expected_result", "roles", "tags")
+# The state of a case whose text was just written from its test.
+REVIEW = CaseState.pending_review
 
 
 @dataclass
@@ -153,10 +156,10 @@ async def plan_sync(session: AsyncSession, project_id: int, tests: list[CatalogT
         claimed.add(case.id)
         if case.catalog_managed:
             item.changes = _changes(case, _content(t, project.roles))
+            if item.changes and case.state != REVIEW or case.state == CaseState.outdated:
+                item.changes.append("state")  # new text (or a test that is back) needs a review
             if case.automation_key != t.key:
                 item.changes.append("automation_key")
-            if case.state == CaseState.outdated:
-                item.changes.append("state")
             item.action = "update" if item.changes else "unchanged"
         else:
             if case.automation_key != t.key:
@@ -323,7 +326,7 @@ async def apply_sync(
                 project_id=project_id, suite_id=suite.id, section_id=section.id,
                 position=await next_case_position(session, section.id),
                 type=case_type, automation_status=AutomationStatus.automated, automation_key=i.key,
-                state=CaseState.active, catalog_managed=True, updated_by=user_name, **content,
+                state=REVIEW, catalog_managed=True, updated_by=user_name, **content,
             ))
             await session.flush()
             used_roles += content["roles"]  # type: ignore[arg-type]
@@ -335,8 +338,8 @@ async def apply_sync(
                 for name in MANAGED_FIELDS:
                     setattr(case, name, content[name])
                 used_roles += content["roles"]  # type: ignore[arg-type]
-                if case.state == CaseState.outdated:
-                    case.state = CaseState.active
+                if "state" in i.changes:
+                    case.state = REVIEW
                 counts["updated"] += 1
             else:
                 counts["linked"] += 1

@@ -343,13 +343,53 @@ changes nothing by itself:
 On the **Test cases** page, **Autotests: N to sync › Review** shows a preview:
 
 - **New tests** become cases in the **Autotests** suite, in sections from `path`, with the description,
-  preconditions, steps, roles and tags filled in. If a manual case with a similar title exists, it is suggested.
-  Link the test to it instead of creating a duplicate, or link it to any case by ID, or skip it for now.
+  preconditions, steps, roles and tags filled in. They start as **Pending review**: the text comes from the
+  code, so a person reads it and sets the case Active. If a manual case with a similar title exists, it is
+  suggested. Link the test to it instead of creating a duplicate, or link it to any case by ID, or skip it for now.
 - **Linked tests** (tagged with `case_ids`, or linked earlier) only set the automation key and status of their
   case. The case's content stays as written.
 - **Changed tests** update the cases created from the catalog: title, description, preconditions, steps, roles
-  and tags. Priority, owner, sprint, custom fields and the section are yours to change.
+  and tags, and put them back to **Pending review**. A changed key alone keeps the state. Priority, owner,
+  sprint, custom fields and the section are yours to change.
 - **Removed tests** mark their catalog cases Outdated. Nothing is deleted.
+
+#### Descriptions from your code
+
+With `catalog = "auto"` the agent fills each case from what the test's code already says. Nothing is
+invented: a test with no description gets one that points to its source file and line.
+
+| Where | What it fills |
+|---|---|
+| pytest: the test's docstring | The first short line is the title, the rest is read as below |
+| Playwright: the `/** … */` or `//` comment right above `test(…)` | Read as below |
+| Playwright: `test.step('…')` titles | Steps, in order. `'Apply the code -> The total drops'` splits into action and expected; a `// Expected: …` comment inside a step is its expected result; nested steps become sub-items |
+| Playwright: annotations `description`, `precondition`, `expected`, `issue` | The matching field (`issue` is listed in the description) |
+| pytest-bdd scenarios | Feature and scenario descriptions, Examples as a table; `Given` lines are the preconditions, each `When` starts a step, `Then` lines are its expected result; the feature's folders and name are the section path |
+| Markers / tags | Tags; `@pytest.mark.case("C142")`, `C142`, `@C142` or `case:C142` link the test to a case |
+
+A docstring or comment is read like this (the section headers are optional, unindented and end with `:`):
+
+```python
+def test_discount():
+    """Applies a discount code at checkout.
+
+    Only active codes count.
+
+    Preconditions:
+    - A cart with one product
+    Steps:
+    1. Open the cart -> The total is shown
+    2. Enter SAVE10 and apply it
+       Expected: the total drops by 10%
+    Expected result:
+    The order total includes the discount.
+    """
+```
+
+`Given` / `When` / `Then` lines in a docstring or comment work too. The pytest details come from a small
+plugin the agent loads during `pytest --collect-only` (it is copied to a temp folder and found through
+`PYTHONPATH`, so testcli needn't be installed in the tests' environment). If the command doesn't pass
+`PYTHONPATH` on, only names and folders are listed.
 
 After the sync, open the **Autotests** tab, tick tests in the tree (or select cases on the Test cases page) and
 press **Run selected**. The agent passes their ids and automation keys to the

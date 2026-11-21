@@ -427,3 +427,17 @@ Reports served by the agent only opened while that agent ran, and only on that m
 ## Retries in JUnit reports
 
 pytest-rerunfailures (and similar) writes a test once per attempt. The earlier attempts often have no failure element, so they looked like passes, and a case got a bogus passed result next to the real one. `parse_junit` now keeps only the last attempt of a test (same classname, name and file within one report). If an earlier attempt needed a retry and the last one passed, the result says "Flaky: passed on retry N". If every attempt failed, its log starts with "Failed in all N attempts".
+
+## Phase 20: case text from the tests' code, Pending review
+
+Cases created from autotests used to have only a title (built-in catalogs) and went straight to Active.
+
+- **States.** A catalog case is created as Pending review. When a sync rewrites its text (any managed field), it goes back to Pending review, so nobody misses the new text. A moved automation key alone keeps the state. A removed test's case comes back from Outdated as Pending review. The preview lists `state` among the changes.
+- **Text from the code** (`cli/src/testharbor_cli/describe.py`). Only what people wrote in the tests is used, no generated prose. A test that states nothing gets "Automated test in `file:line`".
+  - Docstrings and comments: prose is the description; `Preconditions:` / `Steps:` / `Expected result:` sections (unindented headers) fill the fields; steps are `1. action -> expected` items, with an `Expected: …` line under a step; Given/When/Then lines map like Gherkin.
+  - Gherkin (pytest-bdd and docstrings): Given → preconditions, each When starts a step, Then → its expected result.
+  - Playwright: the comment above `test(…)` (found by the `line` / `column` of `--list --reporter=json`, files under `config.rootDir`), `test.step` titles as steps (bracket matching that skips strings and comments; nested steps become sub-items), annotations `description` / `precondition` / `expected` / `issue` (deduplicated across projects).
+  - pytest: a docstring's first short line becomes the title. Markers become tags (run-control markers such as `parametrize` or `skip` are left out). `case` markers and `C142` / `case:C142` names or tags give `case_ids`.
+  - pytest details come from `catalog_plugin.py`. The agent copies it into a temp dir, prepends that to `PYTHONPATH` and runs `pytest --collect-only -p testharbor_catalog` with `TESTHARBOR_CATALOG_OUT`. It reads docstrings, markers and pytest-bdd templates (`scenario_wrapper_template_registry`, or `__scenario__` in older versions). If loading the plugin fails, the agent falls back to plain node ids.
+- **Checked.** CLI tests cover both a real nested pytest run and a real pytest-bdd Scenario Outline. Real `playwright test --list` output (v1.65, two projects) was checked by hand.
+

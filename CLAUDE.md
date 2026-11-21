@@ -5,7 +5,7 @@ TestHarbor is a self-hosted, open-source test case management tool, in the spiri
 - One instance serves one company.
 - People work in it through the web UI. Automated tests report into it through a REST API, a CLI and an agent.
 
-Read this file first, then `docs/PLAN.md`. It holds the design decisions and notes from every phase so far, Phase 1 to 18.
+Read this file first, then `docs/PLAN.md`. It holds the design decisions and notes from every phase so far, Phase 1 to 20.
 
 ## Ground rules
 
@@ -75,7 +75,7 @@ Everything runs in Docker. Node and npm are not installed on the host.
   Review the result and add data steps if needed. Migrations apply on backend start. `tests/test_models.py` fails if models and migrations drift.
 - **Adding an npm package:** `docker run … node:22-alpine npm install <pkg>@<exact version>` in `frontend/`.
 
-At the time of writing, all tests pass: backend about 149, CLI 38, e2e 13.
+At the time of writing, all tests pass: backend about 149, CLI 45, e2e 13.
 
 ## Verification (visual)
 
@@ -103,6 +103,7 @@ Take screenshots with the e2e container:
   - Results have a `config` (a role, a browser, a Playwright project), from a `config` JUnit property.
   - Runs' HTML reports are uploaded by agents and served sandboxed at `/r/<signed token>/…` (`app/reports.py`): never relax that CSP sandbox, the reports are code written by tests.
   - The agent's `--catalog` is synced into cases after a preview (`app/catalog.py`). `catalog_managed` cases follow their test; linked manual cases only get the automation fields. Nothing is ever deleted, only marked Outdated.
+  - Catalog cases are created, and put back when their text changes, as Pending review. The built-in catalogs take the text from the code (`cli/.../describe.py`; pytest details through `catalog_plugin.py`, loaded with `-p` during `--collect-only`). Never generate text that the code doesn't state.
 - **Auth.**
   - Roles are admin and tester. Passwords are hashed with argon2id.
   - Sessions are signed cookies, with a `session_version` for revocation. There is a lockout after failed logins.

@@ -77,6 +77,7 @@ async def test_sync_creates_links_updates_and_outdates(client: AsyncClient, make
     (new,) = items_
     full = (await client.get(f"/api/cases/{new['id']}")).json()
     assert full["title"] == "Orders are filtered by customer"
+    assert full["state"] == "pending_review"  # its text comes from the test: a person checks it
     assert (full["type"], full["automation_status"], full["automation_key"]) == ("smoke", "automated", "t.py::test_filter")
     assert full["roles"] == ["Super Admin (SA)", "Admin"]  # the project's spelling
     assert full["expected_result"] == 'Then the message "Discount Applied" is shown'  # the last step's
@@ -95,19 +96,25 @@ async def test_sync_creates_links_updates_and_outdates(client: AsyncClient, make
     tests2 = [tests[0], {**tests[2], "title": "Orders are filtered by customer and status"}]
     p2 = await _upload(client, pid, tests2)
     assert p2["counts"] == {"create": 0, "link": 0, "update": 1, "outdated": 0, "unchanged": 1}
+    # Still pending review: only the title changes.
     assert next(i for i in p2["items"] if i["action"] == "update")["changes"] == ["title"]
     assert (await _apply(client, pid, p2)).json()["updated"] == 1
+    # Reviewed, then the test changes again: back to Pending review.
+    await client.patch(f"/api/cases/{new['id']}", json={"state": "active"})
     # An explicit expected result wins over the last step's.
     p_exp = await _upload(client, pid, [tests[0], {**tests2[1], "expected_result": "Only matching orders are listed"}])
-    assert next(i for i in p_exp["items"] if i["action"] == "update")["changes"] == ["expected_result"]
+    assert next(i for i in p_exp["items"] if i["action"] == "update")["changes"] == ["expected_result", "state"]
+    # Only a moved key: the reviewed text stays reviewed.
+    moved = await _upload(client, pid, [tests[0], {**tests2[1], "key": "t2.py::test_filter", "case_ids": [new["id"]]}])
+    assert next(i for i in moved["items"] if i["action"] == "update")["changes"] == ["automation_key"]
     p3 = await _upload(client, pid, [tests[0]])
     assert p3["counts"]["outdated"] == 1
     assert (await _apply(client, pid, p3)).json()["outdated"] == 1
     assert (await client.get(f"/api/cases/{new['id']}")).json()["state"] == "outdated"
-    # It comes back: active again.
+    # It comes back: to be reviewed again.
     p4 = await _upload(client, pid, tests2)
     assert (await _apply(client, pid, p4)).json()["updated"] == 1
-    assert (await client.get(f"/api/cases/{new['id']}")).json()["state"] == "active"
+    assert (await client.get(f"/api/cases/{new['id']}")).json()["state"] == "pending_review"
 
 
 async def test_apply_rules(client: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]

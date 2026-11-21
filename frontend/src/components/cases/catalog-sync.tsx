@@ -191,7 +191,8 @@ export function CatalogSyncDialog({
               <>
                 {catalog.items.length - catalog.counts.outdated} tests from {catalog.agent ?? "an agent"},{" "}
                 {new Date(catalog.uploaded_at).toLocaleString()}. New tests become cases in the{" "}
-                <b>{catalog.suite}</b> suite, unless you link them to an existing case.
+                <b>{catalog.suite}</b> suite, unless you link them to an existing case. Their text comes from the tests&apos; code,
+                so they start as <b>Pending review</b>.
               </>
             ) : (
               "Loading…"
@@ -260,7 +261,7 @@ export function CatalogSyncDialog({
             </Group>
           )}
           {groups.update.length > 0 && (
-            <Group title="Changed tests" count={groups.update.length} hint="Their cases follow the tests.">
+            <Group title="Changed tests" count={groups.update.length} hint="Their cases follow the tests and go back to Pending review.">
               {groups.update.map((i) => (
                 <Row key={i.key} item={i} target={i} changes>
                   <Include on={!skipped.has(i.key)} onChange={(on) => toggle(i.key, on)} />
