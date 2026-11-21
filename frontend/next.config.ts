@@ -23,6 +23,11 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  experimental: {
+    // Request bodies passed on to the backend are cut at 10 MB by default; agents upload whole HTML
+    // reports (traces, videos) here. Matches the backend's MAX_REPORT_MB.
+    proxyClientMaxBodySize: "500mb",
+  },
   async headers() {
     // /r/… are runs' HTML reports: the backend serves them with a sandboxing CSP of their own.
     return [{ source: "/((?!docs|openapi.json|api/|r/).*)", headers: securityHeaders }];

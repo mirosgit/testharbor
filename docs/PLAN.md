@@ -428,6 +428,8 @@ Reports served by the agent only opened while that agent ran, and only on that m
 
 pytest-rerunfailures (and similar) writes a test once per attempt. The earlier attempts often have no failure element, so they looked like passes, and a case got a bogus passed result next to the real one. `parse_junit` now keeps only the last attempt of a test (same classname, name and file within one report). If an earlier attempt needed a retry and the last one passed, the result says "Flaky: passed on retry N". If every attempt failed, its log starts with "Failed in all N attempts".
 
+- **Upload size.** Next.js cuts proxied request bodies at 10 MB by default, so a larger report failed with a 500 and the run got no link. `experimental.proxyClientMaxBodySize` is now `500mb` (matching `MAX_REPORT_MB`). In production Caddy allows 500 MB on `/api/runs/*/report` and keeps 60 MB for everything else.
+
 ## Phase 20: case text from the tests' code, Pending review
 
 Cases created from autotests used to have only a title (built-in catalogs) and went straight to Active.
