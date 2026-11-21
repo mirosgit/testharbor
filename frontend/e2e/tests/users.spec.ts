@@ -48,4 +48,10 @@ test("admin invites a tester who sets a password; testers can't manage users", a
   await expect(tp).toHaveURL(/\/login/);
   expect((await tp.request.get("/api/projects")).status()).toBe(401);
   await ctx.close();
+
+  // Deleted for good.
+  await row.getByRole("button", { name: "Actions for Tess Tester" }).click();
+  await page.getByRole("menuitem", { name: "Delete…" }).click();
+  await page.getByRole("button", { name: "Delete user" }).click();
+  await expect(page.getByTestId("users")).not.toContainText(email);
 });

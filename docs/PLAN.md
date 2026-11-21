@@ -173,10 +173,12 @@ Decisions:
 | Runs, results, JUnit upload | ✓ | ✓ |
 | Own API tokens | ✓ | ✓ |
 | Delete projects | ✓ | – |
-| Users: invite, change role, deactivate, reset password | ✓ | – |
+| Users: invite, change role, deactivate, delete, reset password | ✓ | – |
 | See and revoke other users' tokens | ✓ | – |
 
-An admin cannot demote or deactivate themselves. The system always keeps at least one active admin.
+An admin cannot demote, deactivate or delete themselves. The system always keeps at least one active admin.
+
+Deleting a user (`DELETE /api/users/{id}`, added later) removes them for good: their API tokens and reset links go (cascade), and runs, results, jobs and agents they made stay with the user set to null, so the history no longer shows their name. Deactivating keeps the name and can be undone, so the UI suggests it in the confirmation. The e2e teardown deletes the users the tests invite.
 
 ## UI
 

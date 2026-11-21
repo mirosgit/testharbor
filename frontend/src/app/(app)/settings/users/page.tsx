@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, Link2, Lock, MoreHorizontal, UserPlus } from "lucide-react";
+import { Check, Copy, Link2, Lock, MoreHorizontal, Trash2, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -49,6 +49,7 @@ export default function UsersPage() {
   const [inviting, setInviting] = useState(false);
   const [link, setLink] = useState<InviteLink | null>(null);
   const [deactivating, setDeactivating] = useState<AdminUser | null>(null);
+  const [deleting, setDeleting] = useState<AdminUser | null>(null);
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["users"] });
@@ -149,6 +150,9 @@ export default function UsersPage() {
                             Reactivate
                           </DropdownMenuItem>
                         )}
+                        <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(u)}>
+                          <Trash2 /> Delete…
+                        </DropdownMenuItem>
                       </>
                     )}
                   </DropdownMenuContent>
@@ -198,6 +202,29 @@ export default function UsersPage() {
         description="They are signed out immediately and their API tokens stop working. You can reactivate them later; their history is kept."
         confirmLabel="Deactivate"
         onConfirm={() => update.mutate({ id: deactivating!.id, body: { is_active: false } })}
+      />
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(o) => !o && setDeleting(null)}
+        title={`Delete ${deleting?.name}?`}
+        description={
+          <>
+            {deleting?.email} is deleted for good: they are signed out, and their API tokens and reset links stop
+            working. Runs and results they made stay, but no longer show their name. To keep the name in the history,
+            deactivate them instead.
+          </>
+        }
+        confirmLabel="Delete user"
+        onConfirm={async () => {
+          const u = deleting!;
+          try {
+            await api.deleteUser(u.id);
+            toast.success(`${u.name} deleted`);
+            refresh();
+          } catch (e) {
+            fail(e);
+          }
+        }}
       />
     </div>
   );

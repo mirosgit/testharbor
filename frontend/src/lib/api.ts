@@ -145,6 +145,7 @@ export const api = {
   updateUser: (id: number, body: { role?: Role; is_active?: boolean; unlock?: boolean; name?: string }) =>
     request<AdminUser>(`/api/users/${id}`, json("PATCH", body)),
   resetLink: (id: number) => request<InviteLink>(`/api/users/${id}/reset-link`, json("POST")),
+  deleteUser: (id: number) => request<void>(`/api/users/${id}`, json("DELETE")),
   invites: () => request<Invite[]>("/api/invites"),
   createInvite: (email: string, role: Role) =>
     request<InviteLink>("/api/invites", json("POST", { email, role })),
