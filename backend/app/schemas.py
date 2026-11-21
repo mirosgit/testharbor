@@ -406,6 +406,7 @@ class CaseOut(ORM):
     tags: list[str]
     automation_status: AutomationStatus
     automation_key: str | None
+    catalog_managed: bool = False  # created from the autotests' catalog: follows its test
     external_id: str | None
     state: CaseState
     owner: str | None

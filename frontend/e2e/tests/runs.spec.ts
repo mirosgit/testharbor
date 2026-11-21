@@ -211,7 +211,7 @@ test("Autotests page: pick single tests from the catalog and run them", async ({
   await expect(picker).toContainText("3 of 3 tests have no case yet");
   await expect(picker.getByRole("checkbox", { name: "All tests in Checkout" })).toBeDisabled();
   await picker.getByRole("button", { name: "Sync autotests" }).click();
-  await page.getByTestId("catalog-dialog").getByRole("button", { name: "Sync", exact: true }).click();
+  await page.getByTestId("catalog-dialog").getByRole("button", { name: /^Sync \d/ }).click();
   await expect(picker).not.toContainText("have no case yet");
 
   await picker.getByPlaceholder("Search tests").fill("discount");

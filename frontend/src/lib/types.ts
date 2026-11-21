@@ -130,6 +130,8 @@ export interface TestCase {
   tags: string[];
   automation_status: AutomationStatus;
   automation_key: string | null;
+  /** Created from the autotests' catalog: its text follows the test. */
+  catalog_managed?: boolean;
   external_id: string | null;
   state: CaseState;
   owner: string | null;

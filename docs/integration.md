@@ -353,9 +353,11 @@ On the **Test cases** page, **Autotests: N to sync › Review** shows a preview:
   sprint, custom fields and the section are yours to change.
 - **Removed tests** mark their catalog cases Outdated. Nothing is deleted.
 
-Many tests at once: tick new tests (or all of them in the group's header) and choose **Create new cases**,
-**Link to most alike** (each to its most similar case) or **Skip**. The header box of linked and changed tests
-ticks or unticks all of their **Apply** boxes.
+The preview has a tab per kind (New, Link, Changed, Removed), a filter, and the tests grouped by section.
+Each new test has a menu: create a new case, skip it, link it to a suggested case, or search any manual case
+by title or ID. For many tests at once, tick them (a whole section, or everything the filter shows) and use
+the bar that appears: **New cases**, **Link to most alike** (each to its most similar case), **Skip**, or
+**Apply** for linked and changed tests. Skipped tests stay to be synced later.
 
 #### Descriptions from your code
 
