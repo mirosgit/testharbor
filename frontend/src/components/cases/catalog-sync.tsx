@@ -103,6 +103,7 @@ export function CatalogSyncDialog({
   const [choice, setChoice] = useState<Record<string, Choice>>({});
   const [other, setOther] = useState<Record<string, string>>({});
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  const [picked, setPicked] = useState<Set<string>>(new Set()); // new tests ticked for a bulk choice
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -110,6 +111,7 @@ export function CatalogSyncDialog({
     setChoice({});
     setOther({});
     setSkipped(new Set());
+    setPicked(new Set());
     void refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -180,6 +182,37 @@ export function CatalogSyncDialog({
       else n.add(key);
       return n;
     });
+  // Tick or untick a whole group's "Apply" boxes.
+  const toggleAll = (items: CatalogItem[], on: boolean) =>
+    setSkipped((s) => {
+      const n = new Set(s);
+      for (const i of items) {
+        if (on) n.delete(i.key);
+        else n.add(i.key);
+      }
+      return n;
+    });
+  const applied = (items: CatalogItem[]) => tri(items.filter((i) => !skipped.has(i.key)).length, items.length);
+
+  const pick = (key: string, on: boolean) =>
+    setPicked((s) => {
+      const n = new Set(s);
+      if (on) n.add(key);
+      else n.delete(key);
+      return n;
+    });
+  const pickedNew = groups.create.filter((i) => picked.has(i.key));
+  const pickedAlike = pickedNew.filter((i) => i.suggestions.length > 0);
+  // The same choice for every ticked new test; "link" takes each test's most alike case.
+  const choose = (what: "create" | "skip" | "link") =>
+    setChoice((s) => {
+      const n = { ...s };
+      for (const i of pickedNew) {
+        if (what !== "link") n[i.key] = what;
+        else if (i.suggestions.length) n[i.key] = `link:${i.suggestions[0].case_id}`;
+      }
+      return n;
+    });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -202,11 +235,58 @@ export function CatalogSyncDialog({
 
         <div className="-mx-6 grid min-h-0 flex-1 gap-5 overflow-y-auto px-6">
           {groups.create.length > 0 && (
-            <Group title="New tests" count={groups.create.length} hint="A similar existing case? Link the test to it instead of creating a duplicate.">
+            <Group
+              title="New tests"
+              count={groups.create.length}
+              hint="A similar existing case? Link the test to it instead of creating a duplicate. Tick tests to decide for several at once."
+              all={{
+                checked: tri(pickedNew.length, groups.create.length),
+                label: "Select all new tests",
+                onChange: (on) => setPicked(on ? new Set(groups.create.map((i) => i.key)) : new Set()),
+              }}
+              bar={
+                pickedNew.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted px-3 py-1.5 text-xs" data-testid="catalog-bulk">
+                    <span className="mr-auto font-medium">{pickedNew.length} selected</span>
+                    <Button size="sm" variant="outline" className="h-7" onClick={() => choose("create")}>
+                      Create new cases
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7"
+                      onClick={() => choose("link")}
+                      disabled={pickedAlike.length === 0}
+                      title={pickedAlike.length ? undefined : "None of them has a similar case"}
+                    >
+                      Link to most alike
+                      {pickedAlike.length > 0 && pickedAlike.length < pickedNew.length && ` (${pickedAlike.length})`}
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-7" onClick={() => choose("skip")}>
+                      Skip
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7" onClick={() => setPicked(new Set())}>
+                      Clear
+                    </Button>
+                  </div>
+                )
+              }
+            >
               {groups.create.map((i) => {
                 const c = decide(i.key);
                 return (
-                  <Row key={i.key} item={i}>
+                  <Row
+                    key={i.key}
+                    item={i}
+                    lead={
+                      <Checkbox
+                        checked={picked.has(i.key)}
+                        onCheckedChange={(v) => pick(i.key, v === true)}
+                        aria-label={`Select ${i.title}`}
+                        className="mt-0.5"
+                      />
+                    }
+                  >
                     <div className="grid w-full gap-1 sm:w-72">
                       <Select value={c} onValueChange={(v) => setChoice((s) => ({ ...s, [i.key]: v as Choice }))}>
                         <SelectTrigger size="sm" className="w-full" aria-label={`What to do with ${i.title}`}>
@@ -252,7 +332,12 @@ export function CatalogSyncDialog({
             </Group>
           )}
           {groups.link.length > 0 && (
-            <Group title="Link to existing cases" count={groups.link.length} hint="Tagged with a case ID in the tests. Only the automation fields of these cases change.">
+            <Group
+              title="Link to existing cases"
+              count={groups.link.length}
+              hint="Tagged with a case ID in the tests. Only the automation fields of these cases change."
+              all={{ checked: applied(groups.link), label: "Apply all links", onChange: (on) => toggleAll(groups.link, on) }}
+            >
               {groups.link.map((i) => (
                 <Row key={i.key} item={i} target={i}>
                   <Include on={!skipped.has(i.key)} onChange={(on) => toggle(i.key, on)} />
@@ -261,7 +346,12 @@ export function CatalogSyncDialog({
             </Group>
           )}
           {groups.update.length > 0 && (
-            <Group title="Changed tests" count={groups.update.length} hint="Their cases follow the tests and go back to Pending review.">
+            <Group
+              title="Changed tests"
+              count={groups.update.length}
+              hint="Their cases follow the tests and go back to Pending review."
+              all={{ checked: applied(groups.update), label: "Apply all changes", onChange: (on) => toggleAll(groups.update, on) }}
+            >
               {groups.update.map((i) => (
                 <Row key={i.key} item={i} target={i} changes>
                   <Include on={!skipped.has(i.key)} onChange={(on) => toggle(i.key, on)} />
@@ -313,15 +403,46 @@ export function CatalogSyncDialog({
   );
 }
 
-function Group({ title, count, hint, children }: { title: string; count: number; hint: string; children: React.ReactNode }) {
+type Tri = boolean | "indeterminate";
+const tri = (n: number, of: number): Tri => (n && n === of ? true : n ? "indeterminate" : false);
+
+function Group({
+  title,
+  count,
+  hint,
+  all,
+  bar,
+  children,
+}: {
+  title: string;
+  count: number;
+  hint: string;
+  /** A check box for the whole group, in the header. */
+  all?: { checked: Tri; label: string; onChange: (on: boolean) => void };
+  /** Shown between the header and the rows (bulk actions). */
+  bar?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section className="grid min-w-0 gap-2">
-      <div>
-        <h3 className="text-sm font-medium">
-          {title} <span className="text-muted-foreground">{count}</span>
-        </h3>
-        <p className="text-xs text-muted-foreground">{hint}</p>
+      <div className="flex min-w-0 items-start gap-3">
+        {all && (
+          <Checkbox
+            checked={all.checked}
+            onCheckedChange={(v) => all.onChange(v === true)}
+            aria-label={all.label}
+            title={all.label}
+            className="mt-0.5 ml-3"
+          />
+        )}
+        <div className="min-w-0">
+          <h3 className="text-sm font-medium">
+            {title} <span className="text-muted-foreground">{count}</span>
+          </h3>
+          <p className="text-xs text-muted-foreground">{hint}</p>
+        </div>
       </div>
+      {bar}
       <ul className="grid divide-y rounded-md border">{children}</ul>
     </section>
   );
@@ -331,29 +452,35 @@ function Row({
   item,
   target,
   changes,
+  lead,
   children,
 }: {
   item: CatalogItem;
   target?: CatalogItem;
   changes?: boolean;
+  /** Before the title (a check box for bulk choices). */
+  lead?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   return (
     <li className="grid min-w-0 gap-2 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start" data-testid="catalog-item">
-      <div className="grid min-w-0 gap-0.5">
-        <span className="text-sm break-words">{item.title}</span>
-        <span className="truncate text-xs text-muted-foreground">
-          {target?.case_key ? (
-            <>
-              <span className="font-mono">{target.case_key}</span>
-              {target.case_title !== item.title && ` ${target.case_title}`}
-            </>
-          ) : (
-            item.path.join(" › ")
-          )}
-          {changes && item.changes.length > 0 && ` · ${item.changes.map((c) => CHANGE_LABEL[c] ?? c).join(", ")}`}
-        </span>
-        {item.note && <span className="text-xs text-amber-700 dark:text-amber-400">{item.note}</span>}
+      <div className="flex min-w-0 items-start gap-3">
+        {lead}
+        <div className="grid min-w-0 flex-1 gap-0.5">
+          <span className="text-sm break-words">{item.title}</span>
+          <span className="truncate text-xs text-muted-foreground">
+            {target?.case_key ? (
+              <>
+                <span className="font-mono">{target.case_key}</span>
+                {target.case_title !== item.title && ` ${target.case_title}`}
+              </>
+            ) : (
+              item.path.join(" › ")
+            )}
+            {changes && item.changes.length > 0 && ` · ${item.changes.map((c) => CHANGE_LABEL[c] ?? c).join(", ")}`}
+          </span>
+          {item.note && <span className="text-xs text-amber-700 dark:text-amber-400">{item.note}</span>}
+        </div>
       </div>
       {children}
     </li>

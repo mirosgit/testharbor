@@ -353,6 +353,10 @@ On the **Test cases** page, **Autotests: N to sync › Review** shows a preview:
   sprint, custom fields and the section are yours to change.
 - **Removed tests** mark their catalog cases Outdated. Nothing is deleted.
 
+Many tests at once: tick new tests (or all of them in the group's header) and choose **Create new cases**,
+**Link to most alike** (each to its most similar case) or **Skip**. The header box of linked and changed tests
+ticks or unticks all of their **Apply** boxes.
+
 #### Descriptions from your code
 
 With `catalog = "auto"` the agent fills each case from what the test's code already says. Nothing is
