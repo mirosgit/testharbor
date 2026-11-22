@@ -23,12 +23,15 @@ from app.models import ResultStatus
 # `C142: login` match, but `ABC142` or `TC142` don't), and not followed by another digit.
 CASE_ID_IN_NAME = re.compile(r"(?<![A-Za-z0-9])C(\d+)(?!\d)")
 CASE_ID_VALUE = re.compile(r"^\s*[Cc]?(\d+)\s*$")
+_PARAMS = re.compile(r"\[[^\[\]]*\]$")
 CASE_ID_PROPERTIES = {"case_id", "case_ids", "caseid", "testharbor_case_id", "test_case_id"}
 KEY_PROPERTIES = {"automation_key", "testharbor_key", "nodeid"}
 # A link to this test's details in an HTML report: an absolute URL, or a Playwright test id
 # that is appended to the run's report URL as "#?testId=<id>".
 LINK_PROPERTIES = {"report_url", "report_link", "testharbor_link", "link", "url"}
 TEST_ID_PROPERTIES = {"pw_test_id", "playwright_test_id", "testid"}
+# The configuration a test ran in (a role, a browser, a Playwright project), shown with its result.
+CONFIG_PROPERTIES = {"config", "configuration", "testharbor_config"}
 
 MAX_TEXT = 64 * 1024  # cap stored message/trace size per result
 
@@ -89,6 +92,8 @@ class JUnitCase:
                 cls = cn.rsplit(".", 1)[-1]
                 keys.append(f"{self.file}::{cls}::{name}")
         keys.append(name)
+        # A parametrized test (`test_x[a]`) also matches the case of the whole test (`…::test_x`).
+        keys += [_PARAMS.sub("", k) for k in keys if _PARAMS.search(k)]
         return list(dict.fromkeys(keys))
 
     def default_key(self) -> str:
@@ -107,6 +112,14 @@ class JUnitCase:
                 for v in values:
                     if re.fullmatch(r"[A-Za-z0-9_-]{1,200}", v.strip()):
                         return f"#?testId={v.strip()}"
+        return None
+
+    def config(self) -> str | None:
+        for prop, values in self.properties.items():
+            if prop.lower() in CONFIG_PROPERTIES:
+                for v in values:
+                    if v.strip():
+                        return v.strip()[:200]
         return None
 
     def duration_ms(self) -> int | None:
@@ -190,7 +203,26 @@ def parse_junit(data: bytes) -> list[JUnitCase]:
     if root.tag not in ("testsuites", "testsuite", "testcase"):
         raise JUnitParseError(f"Not a JUnit report (root element <{root.tag}>)")
     elements = [root] if root.tag == "testcase" else list(root.iter("testcase"))
-    return [_parse_testcase(el) for el in elements]
+    return collapse_retries([_parse_testcase(el) for el in elements])
+
+
+def collapse_retries(cases: list[JUnitCase]) -> list[JUnitCase]:
+    """Reruns (pytest-rerunfailures, Surefire's rerunFailingTestsCount…) write a test once per attempt, the
+    earlier attempts often without a failure element: only the last attempt is the test's result. A test
+    that needed a retry and then passed is reported as flaky."""
+    groups: dict[tuple[str, str, str], list[JUnitCase]] = {}
+    for c in cases:
+        groups.setdefault((c.classname, c.name, c.file), []).append(c)
+    out: list[JUnitCase] = []
+    for attempts in groups.values():
+        last = attempts[-1]
+        if len(attempts) > 1:
+            if last.status == ResultStatus.passed:
+                last.message = f"Flaky: passed on retry {len(attempts) - 1}"
+            elif last.status == ResultStatus.failed:
+                last.details = _clip(f"Failed in all {len(attempts)} attempts.\n\n{last.details or ''}")
+        out.append(last)
+    return out
 
 
 # Order for writing several results for the same case in one import: the worst status

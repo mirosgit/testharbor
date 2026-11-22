@@ -95,10 +95,10 @@ test("Run autotests: an agent picks the job up and results land in the run", asy
   await login(page);
   const { project, cases } = await seedProject(page.request, ["Pay by card", "Pay by invoice"]);
   await page.goto(`/projects/${project.id}/runs`);
-  await page.getByRole("button", { name: "Run autotests" }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByTestId("agent-status")).toContainText("No agent is online");
-  await dialog.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("link", { name: "Run autotests" }).click();
+  await expect(page).toHaveURL(/\/autotests$/);
+  await expect(page.getByTestId("agent-status")).toContainText("No agent is online");
+  await page.getByRole("button", { name: "Run all" }).click();
   await expect(page).toHaveURL(/\/runs\/\d+$/);
   const runId = Number(page.url().split("/").pop());
   await expect(page.getByTestId("autotests-status")).toHaveText("Autotests: Waiting for an agent");
@@ -136,4 +136,143 @@ test("Run autotests: an agent picks the job up and results land in the run", asy
   await expect(page.getByTestId("autotests-panel")).toContainText("1 cases");
   await page.getByTestId("autotests-panel").getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByTestId("autotests-status")).toHaveText("Autotests: Cancelled");
+});
+
+test("Run autotests with the agent's run options; results per role", async ({ page }) => {
+  await login(page);
+  const { project, cases } = await seedProject(page.request, ["Discount code is added"]);
+  const options = [
+    { name: "ENV", label: "Environment", type: "choice", default: "dev", choices: [{ value: "dev", label: "dev" }, { value: "qa", label: "qa" }] },
+    { name: "ROLES", label: "Roles", type: "multi", default: [], hint: "None = every role",
+      choices: [{ value: "super_admin", label: "Super Admin" }, { value: "admin", label: "Admin" }, { value: "support_agent", label: "Support Agent" }] },
+    { name: "HEADED", label: "Show the browser", type: "bool", default: false },
+  ];
+  // An agent started with --options shows up (nothing queued yet).
+  await page.request.post(`/api/projects/${project.id}/automation/claim`, { data: { agent: "qa-box", options } });
+
+  await page.goto(`/projects/${project.id}/autotests`);
+  const form = page.getByTestId("run-options");
+  await form.getByLabel("Environment").click();
+  await page.getByRole("option", { name: "qa" }).click();
+  await form.getByRole("button", { name: "Admin", exact: true }).click();
+  await form.getByRole("button", { name: "Super Admin" }).click();
+  await form.getByText("Show the browser").click();
+  await page.getByRole("button", { name: "Run all" }).click();
+  await expect(page).toHaveURL(/\/runs\/\d+$/);
+  const runId = Number(page.url().split("/").pop());
+  await expect(page.getByTestId("autotests-params")).toHaveText("Environment: qa · Roles: Super Admin, Admin · Show the browser");
+
+  const claim = await page.request.post(`/api/projects/${project.id}/automation/claim`, { data: { agent: "qa-box", options } });
+  const job = await claim.json();
+  expect(job.params).toEqual({ ENV: "qa", ROLES: ["super_admin", "admin"], HEADED: true });
+
+  // One JUnit file per role process, with the role as `config`.
+  const junit = (role: string, failed: boolean) =>
+    Buffer.from(
+      `<testsuites><testsuite name="pytest"><testcase classname="${role}.tests.test_checkout" name="test_discount_code_is_added" time="2.1">` +
+        `<properties><property name="case_id" value="${cases[0].key}"/><property name="config" value="${role}"/></properties>` +
+        (failed ? `<failure message="The message &quot;Discount Applied&quot; is not shown">trace</failure>` : "") +
+        `</testcase></testsuite></testsuites>`,
+    );
+  await page.request.post(`/api/projects/${project.id}/runs/import-junit?run_id=${runId}`, {
+    multipart: { file: { name: "junit.xml", mimeType: "application/xml", buffer: junit("Super Admin", false) } },
+  });
+  await page.request.post(`/api/projects/${project.id}/runs/import-junit?run_id=${runId}`, {
+    multipart: { file: { name: "junit.xml", mimeType: "application/xml", buffer: junit("Admin", true) } },
+  });
+  await page.request.post(`/api/automation/jobs/${job.id}/finish`, { data: { status: "finished", exit_code: 1 } });
+  await expect(page.getByTestId("autotests-status")).toHaveText("Autotests: Finished");
+
+  await page.getByTestId("run-case-row").filter({ hasText: cases[0].key }).click();
+  const results = page.getByTestId("run-results").getByRole("listitem");
+  await expect(results).toHaveCount(2);
+  await expect(results.first()).toContainText("Admin");
+  await expect(results.first()).toContainText("Discount Applied");
+  await expect(results.nth(1)).toContainText("Super Admin");
+});
+
+
+test("Autotests page: pick single tests from the catalog and run them", async ({ page }) => {
+  await login(page);
+  const { project } = await seedProject(page.request, []);
+  const test_ = (key: string, title: string, path: string[]) => ({
+    key, title, path, description: "", preconditions: "", steps: [], roles: ["Admin"], tags: ["regression"], case_ids: [],
+  });
+  await page.request.put(`/api/projects/${project.id}/automation/catalog`, {
+    data: { agent: "qa-box", tests: [
+      test_("t::add", "A discount code is added", ["Checkout", "Discount codes"]),
+      test_("t::del", "A discount code is removed", ["Checkout", "Discount codes"]),
+      test_("t::export", "Orders are exported", ["Orders", "Export"]),
+    ] },
+  });
+  await page.goto(`/projects/${project.id}/autotests`);
+  const picker = page.getByTestId("test-picker");
+  // Not synced yet: nothing can be picked, the sync is offered.
+  await expect(picker).toContainText("3 of 3 tests have no case yet");
+  await expect(picker.getByRole("checkbox", { name: "All tests in Checkout" })).toBeDisabled();
+  await picker.getByRole("button", { name: "Sync autotests" }).click();
+  await page.getByTestId("catalog-dialog").getByRole("button", { name: /^Sync \d/ }).click();
+  await expect(picker).not.toContainText("have no case yet");
+
+  await picker.getByPlaceholder("Search tests").fill("discount");
+  await expect(picker.getByText("Orders are exported")).toHaveCount(0);
+  await picker.getByRole("checkbox", { name: "All tests in Discount codes" }).click();
+  await expect(page.getByTestId("run-selected")).toHaveText("Run selected (2)");
+  await page.getByTestId("run-selected").click();
+  await expect(page).toHaveURL(/\/runs\/\d+$/);
+  const job = await (await page.request.post(`/api/projects/${project.id}/automation/claim`, { data: { agent: "qa-box" } })).json();
+  expect(job.automation_keys.sort()).toEqual(["t::add", "t::del"]);
+});
+
+test("Connect autotests: steps for the chosen framework, agent shows its folder and branch", async ({ page }) => {
+  await login(page);
+  const { project } = await seedProject(page.request, []);
+  await page.goto(`/projects/${project.id}/autotests`);
+  await page.getByRole("link", { name: "Connect autotests" }).first().click();
+  await expect(page).toHaveURL(/\/autotests\/connect$/);
+  await page.getByRole("radio", { name: /pytest/ }).click();
+  await expect(page.getByText(`testcli init --project ${project.id}`)).toBeVisible();
+  await expect(page.getByText('framework = "pytest"')).toBeVisible();
+  await page.request.post(`/api/projects/${project.id}/automation/claim`, {
+    data: { agent: "laptop", info: { mode: "local", folder: "~/qa", branch: "feature-x", dirty: true } },
+  });
+  await expect(page.getByTestId("agent-status")).toContainText("local · ~/qa · feature-x (uncommitted changes)");
+});
+
+test("Autotests: run on the server, on a chosen branch", async ({ page }) => {
+  await login(page);
+  const { project } = await seedProject(page.request, []);
+  const claim = (data: object) => page.request.post(`/api/projects/${project.id}/automation/claim`, { data });
+  await claim({ agent: "laptop", info: { mode: "local", folder: "~/qa", branch: "main" } });
+  await claim({ agent: "server", info: { mode: "repo", repo: "bitbucket.org/team/qa", default_branch: "main",
+    branches: ["main", "feature/new-flows", "release/1.2"] } });
+  await page.goto(`/projects/${project.id}/autotests`);
+  const target = page.getByTestId("run-target");
+  await target.getByText("Server · server").click();
+  await expect(target.getByRole("combobox")).toContainText("main");
+  await target.getByRole("combobox").click();
+  await page.getByRole("option", { name: "feature/new-flows" }).click();
+  await page.getByRole("button", { name: "Run all" }).click();
+  await expect(page).toHaveURL(/\/runs\/\d+$/);
+  await expect(page.getByTestId("autotests-panel")).toContainText("feature/new-flows · server");
+  // The laptop can't take it; the server does, with the branch.
+  expect((await claim({ agent: "laptop", info: { mode: "local" } })).status()).toBe(204);
+  const job = await (await claim({ agent: "server", info: { mode: "repo" } })).json();
+  expect([job.branch, job.target_agent]).toEqual(["feature/new-flows", "server"]);
+});
+
+test("Admins delete several runs at once", async ({ page }) => {
+  await login(page);
+  const { project } = await seedProject(page.request, ["A"]);
+  for (const name of ["Old run 1", "Old run 2", "Keep me"]) {
+    await page.request.post(`/api/projects/${project.id}/runs`, { data: { name } });
+  }
+  await page.goto(`/projects/${project.id}/runs`);
+  await expect(page.getByTestId("run-row")).toHaveCount(3);
+  await page.getByRole("checkbox", { name: "Select Old run 1" }).click();
+  await page.getByRole("checkbox", { name: "Select Old run 2" }).click();
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByTestId("run-row")).toHaveCount(1);
+  await expect(page.getByTestId("run-row")).toContainText("Keep me");
 });

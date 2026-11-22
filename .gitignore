@@ -27,3 +27,6 @@ backups/
 
 # Personal notes for Claude Code
 CLAUDE.local.md
+
+# The test runner's secrets (tests' .env, SSH key)
+runner-secrets/

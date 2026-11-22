@@ -243,7 +243,7 @@ function CaseView({
         </div>
       </SheetHeader>
 
-      <div className="grid gap-6 p-6">
+      <div className="grid min-w-0 gap-6 p-4 sm:p-6 [&>*]:min-w-0">
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-4" data-testid="case-meta">
           <Meta label="State">
             <StateBadge state={c.state} />
@@ -305,6 +305,9 @@ function CaseView({
           )}
         </dl>
 
+        {/* The case's results across runs, before its text, so they are in view when the sheet opens. */}
+        {extra?.(c)}
+
         {c.custom_fields.length > 0 && (
           <Block title="Fields">
             <CustomFieldsView fields={c.custom_fields} />
@@ -329,7 +332,10 @@ function CaseView({
           ) : (
             <ol className="divide-y rounded-md border">
               {c.steps.map((s, i) => (
-                <li key={i} className="grid grid-cols-[2rem_1fr_1fr] gap-3 px-3 py-2.5">
+                <li
+                  key={i}
+                  className="grid grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)] gap-3 px-3 py-2.5 [overflow-wrap:anywhere]"
+                >
                   <span className="text-sm text-muted-foreground tabular-nums">{i + 1}</span>
                   <Markdown>{s.action}</Markdown>
                   <div className="text-muted-foreground">
@@ -346,8 +352,6 @@ function CaseView({
             <Markdown>{c.expected_result}</Markdown>
           </Block>
         )}
-
-        {extra?.(c)}
       </div>
 
       <ConfirmDialog
@@ -372,7 +376,7 @@ function Meta({ label, children, className }: { label: string; children: React.R
 
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section>
+    <section className="min-w-0">
       <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{title}</h3>
       {children}
     </section>

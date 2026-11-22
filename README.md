@@ -12,6 +12,10 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
 
 ## Features
 
+- **Dashboard per project.** Automation coverage (overall, by area and by priority), the Pending
+  review queue, pass rate per day with the change against the previous period, the cases that
+  fail most or flip between passed and failed, recent runs and the autotests catalog. Every number
+  links to the cases or runs behind it.
 - **Test cases in a tree.** Suites contain nested sections, and cases are listed on the right,
   similar to TestRail. You can drag and drop cases, including several at once, between sections.
 - **Case editor.** It has a steps table (action and expected result), preconditions, priority,
@@ -30,6 +34,7 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
   filter, or from selected cases. The run page shows a progress bar and per-status counts. Each
   case can have several results; the most recent one is its current status. "Save & next untested"
   moves you to the next case without a result.
+- **Deleting runs** is for admins, one at a time or several from the runs list.
 - **Run history per case.** Each case shows every run it was in and its result there.
 - **Import and export.** Cases can be imported and exported as CSV (spreadsheet-friendly) or JSON
   (lossless). Import also reads **BrowserStack Test Management and TestRail CSV exports**:
@@ -49,9 +54,22 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
   - `testcli upload` CLI, which detects the branch, commit and build URL in CI.
   - Playwright's JSON report is accepted too: each case in the run links to its test in
     Playwright's HTML report.
+  - **On your machine or on a server**: a local agent runs a folder as it is; the server runner
+    (`make runner`, [docs/runner.md](docs/runner.md)) runs the branch you pick, freshly pulled from
+    Bitbucket, GitHub or GitLab.
+  - **Connect in minutes**: `testcli init` writes a `testharbor.toml` for Playwright or pytest,
+    then `testcli agent` runs in the tests' folder. The Autotests tab has a step-by-step guide.
   - **Run autotests from TestHarbor**: all of them, selected cases or a run's failed cases.
     `testcli agent` runs them on the machine with the tests, streams the output and uploads
-    the results into the run.
+    the results into the run. The agent can offer run options (environment, roles, browser…) that are
+    chosen in the dialog and reach its command as environment variables.
+  - The agent can send a **catalog of its tests**. After a preview they become cases, or get linked to
+    similar manual cases instead of duplicating them. The description, preconditions, steps and expected
+    result come from the code (docstrings, comments, `test.step` titles, annotations, pytest-bdd
+    scenarios), and new or changed cases wait in **Pending review**. Single tests then run by selecting
+    their cases.
+  - Results carry their **configuration** (a role, a browser), so one case can show a result per
+    role or browser in the same run.
   - A pytest plugin with a `@pytest.mark.case("C142")` marker.
 - **Team accounts.** Testers are invited with one-time links. There are two roles, Admin and
   Tester. Passwords are hashed with argon2id, sign-ins are locked after repeated failures, and

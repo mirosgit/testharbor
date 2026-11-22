@@ -5,11 +5,26 @@ project, runs the command given on its own command line (never one sent by the s
 streams the output back, and uploads the report into the job's run.
 
 For jobs limited to some cases, `--grep <regex>` is appended, matching the case ids
-(C197, @C197, [C197]) in test titles or tags: Playwright's syntax.
+(C197, @C197, [C197]) in test titles or tags: Playwright's syntax. The ids are also in
+TESTHARBOR_CASE_IDS, for commands that select tests themselves (`--grep-arg ""`).
+
+Run options (`--options FILE`): the agent tells TestHarbor which environment variables of its
+command a person may set and to which values (an environment, roles, a browser). A job carries the
+chosen values; the agent checks each against its own file and sets the variables. Anything
+else is refused, so the server can only pick from what the agent offers.
+
+Catalog (`--catalog FILE`): the tests the agent can run, uploaded when it starts. People sync it
+into cases in TestHarbor after a preview. A job for selected cases then also gets their automation
+keys: the command finds both lists in the JSON file named by TESTHARBOR_SELECTION
+({"case_ids": [...], "automation_keys": [...]}).
+
+`--report` and `--report-url` may contain `{job_id}`; `--report` may be a glob
+(`reports/t{job_id}/*/junit.xml`): every matching file written during the job is uploaded.
 """
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import re
@@ -19,18 +34,30 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from . import __version__
 from .main import CliError, upload
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 PROGRESS_EVERY = 2.0  # seconds between log uploads / cancel checks
+OPTION_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+OPTION_TYPES = ("choice", "multi", "bool")
+# Variables a run option may not set: they change how programs start, or belong to the agent.
+RESERVED_ENV = re.compile(
+    r"^(PATH|HOME|SHELL|IFS|BASH_ENV|CDPATH|LD_\w*|DYLD_\w*|PYTHON\w*|NODE_OPTIONS|NODE_PATH|"
+    r"JAVA_TOOL_OPTIONS|PERL5\w*|RUBYOPT|GIT_\w*|TESTHARBOR_\w*)$"
+)
+# Never handed to the tests: the agent's own credentials.
+PRIVATE_ENV = ("TESTHARBOR_TOKEN", "TESTHARBOR_GIT_TOKEN")
 
 
 @dataclass
@@ -47,6 +74,20 @@ class AgentConfig:
     grep_arg: str = "--grep"
     poll: float = 3.0
     once: bool = False
+    options: list[dict[str, Any]] = field(default_factory=list)  # from --options, see load_options()
+    options_file: Path | None = None  # re-read after `prepare`
+    catalog: Path | str | None = None  # a JSON file, or "auto" (built in for playwright / pytest)
+    framework: str = "custom"  # playwright | pytest | custom (testharbor.toml)
+    # How selected tests reach the command: grep (--grep regex), args (node ids), env/none (only
+    # TESTHARBOR_SELECTION). Empty: grep when grep_arg is set, else none (older command lines).
+    select: str = ""
+    prepare: str = ""  # runs before options and catalog are (re)read
+    extra_env: dict[str, str] = field(default_factory=dict)
+    info: dict[str, Any] = field(default_factory=dict)  # shown in TestHarbor: folder, branch, changes
+    branch_name: str = ""  # a server agent's checkout is detached: the branch the job asked for
+    report_html: str = ""  # the HTML report page (relative, may contain {job_id}); its folder is uploaded
+    # Keys of the tests this agent listed itself (its catalog): with select "args" only these reach the command.
+    known_keys: set[str] | None = None
 
 
 def case_grep(case_ids: list[int]) -> str:
@@ -55,16 +96,156 @@ def case_grep(case_ids: list[int]) -> str:
     return f"(?<![A-Za-z0-9])C({ids})(?![0-9])"
 
 
-def build_command(cfg: AgentConfig, case_ids: list[int]) -> list[str]:
+def safe_test_id(key: str) -> bool:
+    """A test id that can only be read as a test: `tests/test_x.py::test_y` (relative, no `..`, no option)."""
+    path = key.split("::", 1)[0].replace("\\", "/")
+    return bool(key) and not key.startswith("-") and "\x00" not in key and not path.startswith("/") \
+        and not re.match(r"^[A-Za-z]:", path) and ".." not in path.split("/")
+
+
+def select_mode(cfg: AgentConfig) -> str:
+    return cfg.select or ("grep" if cfg.grep_arg else "none")
+
+
+def build_command(cfg: AgentConfig, case_ids: list[int], keys: list[str] | None = None) -> list[str]:
+    from .collect import grep_for_keys, pytest_args
+
     args = shlex.split(cfg.command, posix=os.name != "nt")
     if not args:
         raise CliError("--command is empty")
     exe = shutil.which(args[0], path=os.environ.get("PATH"))  # npx -> npx.cmd on Windows
     if exe:
         args[0] = exe
-    if case_ids and cfg.grep_arg:
-        args += [cfg.grep_arg, case_grep(case_ids)]
+    keys = keys or []
+    mode = select_mode(cfg)
+    if mode == "grep" and (case_ids or keys):
+        args += [cfg.grep_arg or "--grep", grep_for_keys(keys, case_ids) if keys else case_grep(case_ids)]
+    elif mode == "args" and case_ids:
+        if not keys:
+            raise CliError("none of the selected cases is linked to a test (no automation key): "
+                           "sync the autotests in TestHarbor first")
+        # Keys come from TestHarbor, where people edit them: they become arguments of the command, so only
+        # plain test ids of this agent's own tests pass (never an option, an absolute path or `..`).
+        bad = [k for k in keys if not safe_test_id(k) or (cfg.known_keys is not None and k not in cfg.known_keys)]
+        if bad:
+            raise CliError("refusing to run, these automation keys are not tests of this agent: "
+                           + ", ".join(repr(k[:80]) for k in bad[:5]) + (" …" if len(bad) > 5 else ""))
+        args += pytest_args(keys)
     return args
+
+
+def local_info(cfg: AgentConfig) -> dict[str, Any]:
+    """Where this agent runs tests from: shown next to its name in TestHarbor."""
+    home = str(Path.home())
+    folder = str(cfg.cwd)
+    if folder == home or folder.startswith(home + os.sep):
+        folder = "~" + folder[len(home):]
+    info: dict[str, Any] = {"mode": "local", "folder": folder, "framework": cfg.framework}
+    branch = _git(cfg.cwd, "rev-parse", "--abbrev-ref", "HEAD")
+    if branch:
+        info["branch"] = branch
+        info["commit"] = _git(cfg.cwd, "rev-parse", "--short", "HEAD")
+        info["dirty"] = bool(_git(cfg.cwd, "status", "--porcelain", "--untracked-files=no"))
+    return info
+
+
+def load_options(path: Path) -> list[dict[str, Any]]:
+    """Read and check an --options file: {"options": [{name, label, type, choices, default, hint}]}.
+
+    `type` is "choice" (one of `choices`), "multi" (any of them, passed space-separated) or
+    "bool" (passed as 1 / 0). A choice is {"value", "label"} or a plain string.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as e:
+        raise CliError(f"--options {path}: {e.strerror or e}") from e
+    except ValueError as e:
+        raise CliError(f"--options {path}: not valid JSON ({e})") from e
+    raw = data.get("options") if isinstance(data, dict) else data
+    if not isinstance(raw, list):
+        raise CliError(f'--options {path}: expected {{"options": [...]}}')
+    options: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise CliError(f"--options {path}: every option must be an object")
+        name, kind = item.get("name"), item.get("type")
+        if not isinstance(name, str) or not OPTION_NAME.match(name) or RESERVED_ENV.match(name):
+            raise CliError(f"--options {path}: {name!r} cannot be a run option (an UPPER_CASE variable name, "
+                           "not PATH, LD_*, PYTHON*, TESTHARBOR_* …)")
+        if kind not in OPTION_TYPES:
+            raise CliError(f"--options {path}: {name}: type must be one of {', '.join(OPTION_TYPES)}")
+        choices = []
+        for c in item.get("choices") or []:
+            value, label = (c, c) if isinstance(c, str) else (c.get("value"), c.get("label")) if isinstance(c, dict) else (None, None)
+            if not isinstance(value, str):
+                raise CliError(f"--options {path}: {name}: every choice needs a string value")
+            choices.append({"value": value, "label": label if isinstance(label, str) and label else value})
+        if kind != "bool" and not choices:
+            raise CliError(f"--options {path}: {name}: no choices")
+        option: dict[str, Any] = {"name": name, "label": str(item.get("label") or name), "type": kind,
+                                  "choices": choices}
+        if item.get("hint"):
+            option["hint"] = str(item["hint"])
+        default = item.get("default")
+        option["default"] = _check_value(option, default) if default is not None else _fallback(option)
+        options.append(option)
+    if len({o["name"] for o in options}) != len(options):
+        raise CliError(f"--options {path}: an option is listed twice")
+    return options
+
+
+def _fallback(option: dict[str, Any]) -> str | bool | list[str]:
+    return {"bool": False, "multi": []}.get(option["type"], option["choices"][0]["value"] if option["choices"] else "")
+
+
+def _check_value(option: dict[str, Any], value: object) -> str | bool | list[str]:
+    name, kind = option["name"], option["type"]
+    allowed = {c["value"] for c in option["choices"]}
+    if kind == "bool":
+        if not isinstance(value, bool):
+            raise CliError(f"Run option {name} must be true or false")
+        return value
+    if kind == "multi":
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise CliError(f"Run option {name} must be a list")
+        bad = [v for v in value if v not in allowed]
+        if bad:
+            raise CliError(f"Run option {name}: {bad[0]!r} is not offered by this agent")
+        return list(dict.fromkeys(value))
+    if not isinstance(value, str) or value not in allowed:
+        raise CliError(f"Run option {name}: {value!r} is not offered by this agent")
+    return value
+
+
+def option_env(options: list[dict[str, Any]], params: dict[str, Any]) -> dict[str, str]:
+    """The environment variables of a job: every offered option, set to the job's value or its default."""
+    offered = {o["name"] for o in options}
+    unknown = sorted(set(params) - offered)
+    if unknown:
+        raise CliError(f"Run option {unknown[0]} is not offered by this agent"
+                       + ("" if offered else " (it was started without --options)"))
+    env: dict[str, str] = {}
+    for o in options:
+        value = _check_value(o, params[o["name"]]) if o["name"] in params else o["default"]
+        env[o["name"]] = ("1" if value else "0") if isinstance(value, bool) else (
+            " ".join(value) if isinstance(value, list) else value)
+    return env
+
+
+def report_files(pattern: str, cwd: Path, since: float) -> list[Path]:
+    """The report(s) of a job: a path, or every file matching a glob that was written during the job."""
+    full = pattern if Path(pattern).is_absolute() else str(cwd / pattern)
+    if not glob.has_magic(full):
+        return [Path(full)] if Path(full).is_file() else []
+    found = []
+    for m in sorted(glob.glob(full, recursive=True)):
+        p = Path(m)
+        try:
+            if p.is_file() and p.stat().st_mtime >= since - 1:
+                found.append(p)
+        except OSError:
+            continue
+    return found
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -137,16 +318,40 @@ def run_job(cfg: AgentConfig, api: Api, job: dict, log=print) -> str:  # type: i
         log(f"  {'✔' if status == 'finished' else '✖'} {message}")
         return status
 
-    report = cfg.report if cfg.report.is_absolute() else cfg.cwd / cfg.report
+    pattern = str(cfg.report).replace("{job_id}", str(job_id))
+    report_url = cfg.report_url.replace("{job_id}", str(job_id))
+    started = time.time()
     try:
-        report.unlink(missing_ok=True)  # never upload a report left over from an earlier run
-        args = build_command(cfg, case_ids)
+        if not glob.has_magic(pattern):
+            # never upload a report left over from an earlier run
+            (Path(pattern) if Path(pattern).is_absolute() else cfg.cwd / pattern).unlink(missing_ok=True)
+        options = option_env(cfg.options, job.get("params") or {})
+        args = build_command(cfg, case_ids, job.get("automation_keys") or [])
     except (OSError, CliError) as e:
         return finish("error", f"Could not prepare the run: {e}")
 
-    env = {**os.environ, "TESTHARBOR_RUN_ID": str(run_id), "TESTHARBOR_JOB_ID": str(job_id),
-           "TESTHARBOR_CASE_IDS": ",".join(map(str, case_ids)), "FORCE_COLOR": "0", "CI": os.environ.get("CI", "1")}
+    env = {k: v for k, v in os.environ.items() if k not in PRIVATE_ENV}
+    env.update({k: v.replace("{job_id}", str(job_id)) for k, v in cfg.extra_env.items()})
+    env.update(options)
+    selection_dir = tempfile.TemporaryDirectory(prefix="testharbor-")
+    selection = Path(selection_dir.name) / "selection.json"
+    selection.write_text(json.dumps({"case_ids": case_ids, "automation_keys": job.get("automation_keys") or []}),
+                         encoding="utf-8")
+    env.update({"TESTHARBOR_RUN_ID": str(run_id), "TESTHARBOR_JOB_ID": str(job_id),
+                "TESTHARBOR_CASE_IDS": ",".join(map(str, case_ids)), "TESTHARBOR_SELECTION": str(selection),
+                "FORCE_COLOR": "0", "CI": os.environ.get("CI", "1")})
+    if options:
+        out.add("".join(f"{k}={shlex.quote(v)} " for k, v in options.items()))
     out.add(f"$ {shlex.join(args)}\n")
+    try:
+        return _execute(cfg, api, job, args, env, out, finish, pattern, report_url, started, log)
+    finally:
+        selection_dir.cleanup()
+
+
+def _execute(cfg: AgentConfig, api: Api, job: dict, args: list[str], env: dict[str, str], out: _Output,  # type: ignore[no-untyped-def]
+             finish, pattern: str, report_url: str, started: float, log) -> str:
+    job_id, run_id = job["id"], job["run_id"]
     try:
         proc = subprocess.Popen(args, cwd=cfg.cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, encoding="utf-8", errors="replace", bufsize=1)
@@ -175,6 +380,11 @@ def run_job(cfg: AgentConfig, api: Api, job: dict, log=print) -> str:  # type: i
             try:
                 _, ctl = api.call("POST", f"/api/automation/jobs/{job_id}/progress", {"log": out.take()})
             except CliError as e:
+                if "HTTP 404" in str(e) and not cancelled:  # the run (and its job) was deleted in TestHarbor
+                    cancelled = True
+                    log("  the run was deleted in TestHarbor, stopping the tests…")
+                    stop()
+                    continue
                 log(f"  (progress not sent: {e})")
                 continue
             if ctl and ctl.get("cancelled") and not cancelled:
@@ -190,20 +400,28 @@ def run_job(cfg: AgentConfig, api: Api, job: dict, log=print) -> str:  # type: i
     if cancelled:
         return finish("error", "Cancelled", code)
 
-    if not report.is_file():
-        return finish("error", f"Tests exited with code {code} but no report was written to {cfg.report} "
-                               "(is the JSON reporter configured?)", code)
+    reports = report_files(pattern, cfg.cwd, started)
+    if not reports:
+        return finish("error", f"Tests exited with code {code} but no report was written to {pattern} "
+                               "(see the output: nothing selected to run, or no reporter configured)", code)
     params = {
         "run_id": str(run_id),
-        "report_url": cfg.report_url,
+        "report_url": report_url,
         "auto_create": "true" if cfg.auto_create else "",
-        "branch": _git(cfg.cwd, "rev-parse", "--abbrev-ref", "HEAD"),
+        "branch": cfg.branch_name or _git(cfg.cwd, "rev-parse", "--abbrev-ref", "HEAD"),
         "commit": _git(cfg.cwd, "rev-parse", "HEAD"),
     }
     try:
-        result = upload(cfg.url, cfg.token, cfg.project, [report], params)
+        result = upload(cfg.url, cfg.token, cfg.project, reports, params)
     except CliError as e:
         return finish("error", f"Upload failed: {e}", code)
+    if cfg.report_html:
+        page = cfg.cwd / cfg.report_html.replace("{job_id}", str(job_id))
+        try:
+            upload_report(cfg, run_id, page)
+            out.add(f"HTML report uploaded: {page.relative_to(cfg.cwd)}\n")
+        except CliError as e:
+            out.add(f"HTML report not uploaded: {e}\n")
     st = result.get("statuses", {})
     counts = ", ".join(f"{v} {k}" for k, v in sorted(st.items())) or "no results"
     summary = (f"{result.get('total', 0)} tests ({counts}); matched {result.get('matched', 0)}, "
@@ -211,19 +429,110 @@ def run_job(cfg: AgentConfig, api: Api, job: dict, log=print) -> str:  # type: i
     return finish("finished", summary, code)
 
 
+def upload_report(cfg: AgentConfig, run_id: int, page: Path) -> None:
+    """Zip the folder of the HTML report page and store it with the run: TestHarbor serves it, the run links to
+    it and every result to its test in it. Only files inside the folder are taken (no symlinks)."""
+    import tempfile
+    import uuid
+    import zipfile
+
+    if not page.is_file():
+        raise CliError(f"{page} was not written")
+    folder = page.parent
+    with tempfile.TemporaryFile() as tmp:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+            for path in sorted(folder.rglob("*")):
+                if path.is_file() and not path.is_symlink():
+                    zf.write(path, path.relative_to(folder).as_posix())
+        tmp.seek(0)
+        data = tmp.read()
+    boundary = f"----testharbor{uuid.uuid4().hex}"
+    body = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="report.zip"\r\n'
+            f"Content-Type: application/zip\r\n\r\n").encode() + data + f"\r\n--{boundary}--\r\n".encode()
+    query = urllib.parse.urlencode({"page": page.name})
+    req = urllib.request.Request(f"{cfg.url.rstrip('/')}/api/runs/{run_id}/report?{query}", data=body, method="PUT",
+                                 headers={"Authorization": f"Bearer {cfg.token}",
+                                          "Content-Type": f"multipart/form-data; boundary={boundary}",
+                                          "User-Agent": f"testharbor-agent/{__version__}"})
+    try:
+        with urllib.request.urlopen(req, timeout=600):
+            pass
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode(errors="replace")[:300]
+        raise CliError(f"HTTP {e.code}: {detail}") from e
+    except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+        raise CliError(f"cannot reach {cfg.url}: {getattr(e, 'reason', e)}") from e
+
+
+def upload_catalog(cfg: AgentConfig, api: Api, log=print) -> bool:  # type: ignore[no-untyped-def]
+    """Send the catalog to TestHarbor; nothing changes there until someone applies the sync."""
+    from .collect import build_catalog
+
+    assert cfg.catalog is not None
+    try:
+        if cfg.catalog == "auto":
+            tests = build_catalog(cfg.framework, cfg.command, cfg.cwd)
+            cfg.known_keys = {str(t["key"]) for t in tests}
+        else:
+            path = Path(cfg.catalog)
+            data = json.loads((path if path.is_absolute() else cfg.cwd / path).read_text(encoding="utf-8"))
+            tests = data["tests"] if isinstance(data, dict) else data
+        cfg.known_keys = {str(t.get("key")) for t in tests if isinstance(t, dict)}
+        _, preview = api.call("PUT", f"/api/projects/{cfg.project}/automation/catalog",
+                              {"agent": cfg.name, "tests": tests}, timeout=120)
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        log(f"  catalog not sent: cannot read {cfg.catalog} ({e})")
+        return False
+    except CliError as e:
+        log(f"  catalog not sent: {e}")
+        return False
+    counts = (preview or {}).get("counts", {})
+    todo = {k: v for k, v in counts.items() if k != "unchanged" and v}
+    summary = ", ".join(f"{v} {k}" for k, v in todo.items()) or "everything in sync"
+    log(f"  catalog: {len(tests)} tests sent ({summary})"
+        + (" — review it in TestHarbor: Autotests › Sync autotests" if todo else ""))
+    return True
+
+
+def refresh(cfg: AgentConfig, api: Api, log=print) -> None:  # type: ignore[no-untyped-def]
+    """Re-read what may have changed in the folder: prepare, options, catalog, branch."""
+    from .config import run_prepare
+
+    if cfg.prepare:
+        try:
+            run_prepare(cfg.prepare, cfg.cwd, log)
+        except CliError as e:
+            log(f"  {e}")
+    if cfg.options_file is not None:
+        try:
+            path = cfg.options_file if cfg.options_file.is_absolute() else cfg.cwd / cfg.options_file
+            cfg.options = load_options(path)
+        except CliError as e:
+            log(f"  options not reloaded: {e}")
+    cfg.info = local_info(cfg)
+    if cfg.catalog is not None:
+        upload_catalog(cfg, api, log)
+
+
 def run_agent(cfg: AgentConfig, log=print) -> int:  # type: ignore[no-untyped-def]
     api = Api(cfg)
     log(f"testcli agent \"{cfg.name}\" waiting for jobs of project {cfg.project} at {cfg.url}")
     log(f"  runs: {cfg.command}   in {cfg.cwd}   report: {cfg.report}")
+    if cfg.options:
+        log(f"  run options: {', '.join(o['name'] for o in cfg.options)}")
     def on_sigterm(*_: object) -> None:
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, on_sigterm)
+    refresh(cfg, api, log)
+    if cfg.info.get("branch"):
+        log(f"  branch {cfg.info['branch']}" + (" (with uncommitted changes)" if cfg.info.get("dirty") else ""))
     failures = 0
     try:
         while True:
             try:
-                code, job = api.call("POST", f"/api/projects/{cfg.project}/automation/claim", {"agent": cfg.name})
+                code, job = api.call("POST", f"/api/projects/{cfg.project}/automation/claim",
+                                     {"agent": cfg.name, "options": cfg.options, "info": cfg.info})
                 failures = 0
             except CliError as e:
                 failures += 1
@@ -237,6 +546,7 @@ def run_agent(cfg: AgentConfig, log=print) -> int:  # type: ignore[no-untyped-de
                 run_job(cfg, api, job, log)
                 if cfg.once:
                     return 0
+                refresh(cfg, api, log)  # the tests may have changed meanwhile (a local folder)
                 continue
             time.sleep(cfg.poll)
     except KeyboardInterrupt:

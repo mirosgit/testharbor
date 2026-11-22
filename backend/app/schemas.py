@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import date as Day, datetime
 
 from typing import Annotated, Literal
 
@@ -289,6 +289,18 @@ def _clean_key(v: str | None) -> str | None:
     return v or None
 
 
+def unsafe_automation_key(v: str) -> bool:
+    """An automation key that a runner could take for an option: keys reach test commands as arguments."""
+    return v.startswith("-") or "\x00" in v
+
+
+def _clean_automation_key(v: str | None) -> str | None:
+    v = _clean_key(v)
+    if v is not None and unsafe_automation_key(v):
+        raise ValueError("An automation key cannot start with '-' (it would be read as an option of the test command)")
+    return v
+
+
 def _clean_text(v: str | None) -> str | None:
     if v is None:
         return None
@@ -322,7 +334,7 @@ def _clean_fields(fields: list[CustomField]) -> list[CustomField]:
 
 
 CustomFields = Annotated[list[CustomField], AfterValidator(_clean_fields)]
-AutomationKey = Annotated[str | None, Field(max_length=1000), AfterValidator(_clean_key)]
+AutomationKey = Annotated[str | None, Field(max_length=1000), AfterValidator(_clean_automation_key)]
 ExternalId = Annotated[str | None, Field(max_length=200), AfterValidator(_clean_key)]
 
 
@@ -394,6 +406,7 @@ class CaseOut(ORM):
     tags: list[str]
     automation_status: AutomationStatus
     automation_key: str | None
+    catalog_managed: bool = False  # created from the autotests' catalog: follows its test
     external_id: str | None
     state: CaseState
     owner: str | None
@@ -557,6 +570,14 @@ class RunList(BaseModel):
     total: int
 
 
+class RunsDelete(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class RunsDeleted(BaseModel):
+    deleted: int
+
+
 class ResultIn(BaseModel):
     case_id: int
     status: ResultStatus
@@ -565,6 +586,7 @@ class ResultIn(BaseModel):
     error_message: str | None = None
     stack_trace: str | None = None
     report_link: ReportLink = None
+    config: str | None = Field(default=None, max_length=200)  # e.g. a role or a browser the test ran in
 
 
 class BulkResultsIn(BaseModel):
@@ -581,6 +603,7 @@ class ResultOut(ORM):
     error_message: str | None
     stack_trace: str | None
     recorded_by: str | None = None
+    config: str | None = None
     # Resolved against the run's report URL; null when there is nothing to open.
     report_link: str | None = None
     created_at: datetime
@@ -653,6 +676,51 @@ class TokenCreated(TokenOut):
 # --- Automation jobs (run tests from TestHarbor via an agent) ---------------------------
 
 
+OPTION_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+ParamValue = str | bool | list[str]
+
+
+def check_params(params: dict[str, ParamValue]) -> dict[str, ParamValue]:
+    """Run options are plain values: the agent checks them against its own list of options."""
+    if len(params) > 50:
+        raise ValueError("At most 50 run options")
+    for name, value in params.items():
+        if not OPTION_NAME.match(name):
+            raise ValueError(f"Invalid run option name {name!r} (expected e.g. ENV or ROLES)")
+        values = value if isinstance(value, list) else [] if isinstance(value, bool) else [value]
+        if len(values) > 500 or any(len(v) > 200 for v in values):
+            raise ValueError(f"Run option {name}: too many or too long values")
+    return params
+
+
+BRANCH_NAME = re.compile(r"^(?!-)(?!.*\.\.)(?!.*//)[A-Za-z0-9._/@+-]{1,255}(?<![./])$")
+
+
+def check_branch(value: str | None) -> str | None:
+    """A plain git branch name (the agent passes it to git as an argument, never to a shell)."""
+    if value is None or value == "":
+        return None
+    if not BRANCH_NAME.match(value) or value.endswith(".lock"):
+        raise ValueError(f"Invalid branch name {value!r}")
+    return value
+
+
+class AgentChoice(BaseModel):
+    value: str = Field(max_length=200)
+    label: str = Field(default="", max_length=200)
+
+
+class AgentOption(BaseModel):
+    """One run option an agent offers (from its --options file): an environment variable of its command."""
+
+    name: Annotated[str, Field(pattern=OPTION_NAME.pattern)]
+    label: str = Field(default="", max_length=100)
+    type: Literal["choice", "multi", "bool"]
+    choices: list[AgentChoice] = Field(default=[], max_length=500)
+    default: ParamValue | None = None
+    hint: str | None = Field(default=None, max_length=300)
+
+
 class JobIn(BaseModel):
     """Start automated tests. Without run_id a new CI run is created for the results."""
 
@@ -660,6 +728,83 @@ class JobIn(BaseModel):
     name: str | None = Field(default=None, max_length=300)  # new run's name
     case_ids: list[int] = Field(default=[], max_length=5000)  # only these cases; empty = all tests
     only_failed: bool = False  # with run_id: the run's failed cases
+    params: Annotated[dict[str, ParamValue], AfterValidator(check_params)] = {}  # run options of the agent
+    agent: str | None = Field(default=None, max_length=200)  # only this agent may take it
+    branch: Annotated[str | None, AfterValidator(check_branch)] = None  # for a server agent
+
+
+class CatalogTest(BaseModel):
+    """One automated test as an agent reports it (`testcli agent --catalog`)."""
+
+    # stable id; reports carry it as automation_key
+    key: Annotated[str, Field(min_length=1, max_length=1000), AfterValidator(_clean_automation_key)]
+    title: str = Field(min_length=1, max_length=500)
+    path: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default=[], max_length=10)
+    description: str = Field(default="", max_length=50_000)
+    preconditions: str = Field(default="", max_length=50_000)
+    steps: list[Step] = Field(default=[], max_length=300)
+    # The outcome of the whole test; when not given, the expected result of the last step.
+    expected_result: str | None = Field(default=None, max_length=50_000)
+    roles: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default=[], max_length=200)
+    tags: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default=[], max_length=50)
+    case_ids: list[int] = Field(default=[], max_length=50)  # cases the test is tagged with
+
+
+def _unique_keys(tests: list[CatalogTest]) -> list[CatalogTest]:
+    seen: set[str] = set()
+    for t in tests:
+        if t.key in seen:
+            raise ValueError(f"Test key listed twice: {t.key}")
+        seen.add(t.key)
+    return tests
+
+
+class CatalogIn(BaseModel):
+    agent: str | None = Field(default=None, max_length=200)
+    tests: Annotated[list[CatalogTest], AfterValidator(_unique_keys)] = Field(max_length=20_000)
+
+
+class CatalogSuggestionOut(BaseModel):
+    case_id: int
+    key: str
+    title: str
+    path: str
+    score: float
+
+
+class CatalogItemOut(BaseModel):
+    action: Literal["create", "update", "link", "unchanged", "outdated"]
+    key: str
+    title: str
+    path: list[str]
+    case_id: int | None = None
+    case_key: str | None = None
+    case_title: str | None = None
+    changes: list[str] = []
+    note: str | None = None
+    suggestions: list[CatalogSuggestionOut] = []
+
+
+class CatalogPreview(BaseModel):
+    agent: str | None
+    uploaded_at: datetime
+    suite: str  # where new cases go
+    counts: dict[str, int]  # per action
+    items: list[CatalogItemOut]
+
+
+class CatalogApply(BaseModel):
+    uploaded_at: datetime  # the catalog the preview showed; 409 if a newer one arrived since
+    links: dict[str, int] = {}  # test key -> existing case to link instead of creating a case
+    skip: list[str] = Field(default=[], max_length=20_000)  # test keys to leave alone this time
+
+
+class CatalogApplied(BaseModel):
+    created: int
+    updated: int
+    linked: int
+    outdated: int
+    skipped: int
 
 
 class JobOut(ORM):
@@ -668,6 +813,12 @@ class JobOut(ORM):
     run_id: int
     status: JobStatus
     case_ids: list[int]
+    params: dict[str, ParamValue] = {}
+    target_agent: str | None = None
+    branch: str | None = None
+    # Only in the answer to an agent's claim: automation keys of the job's cases, so a runner can
+    # select tests by them (the ids are in case_ids).
+    automation_keys: list[str] = []
     agent: str | None
     exit_code: int | None
     message: str | None
@@ -681,8 +832,25 @@ class JobDetail(JobOut):
     log: str
 
 
+class AgentInfo(BaseModel):
+    """Where an agent runs the tests from, shown next to its name."""
+
+    mode: Literal["local", "repo"] | None = None
+    folder: str | None = Field(default=None, max_length=500)
+    branch: str | None = Field(default=None, max_length=300)
+    commit: str | None = Field(default=None, max_length=64)
+    dirty: bool | None = None  # uncommitted changes in a local folder
+    framework: str | None = Field(default=None, max_length=50)
+    # A server agent ("repo"): the repository (no credentials) and its branches to pick from.
+    repo: str | None = Field(default=None, max_length=500)
+    default_branch: str | None = Field(default=None, max_length=255)
+    branches: list[Annotated[str, Field(max_length=255)]] = Field(default=[], max_length=2000)
+
+
 class AgentClaim(BaseModel):
     agent: str = Field(min_length=1, max_length=200)
+    options: list[AgentOption] = Field(default=[], max_length=50)  # what the agent can be asked to vary
+    info: AgentInfo = Field(default_factory=lambda: AgentInfo())
 
 
 class JobProgress(BaseModel):
@@ -703,4 +871,116 @@ class AgentOut(BaseModel):
     name: str
     last_seen_at: datetime
     online: bool
+    options: list[AgentOption] = []
+    info: AgentInfo = Field(default_factory=lambda: AgentInfo())
 
+
+
+# --- Dashboard ---------------------------------------------------------------------------
+
+
+class DashboardCoverage(BaseModel):
+    live: int  # cases that are not Outdated or Rejected
+    automated: int
+    to_be_automated: int
+    manual: int
+    cannot_be_automated: int  # not automated, with automation progress "Cannot be automated"
+    percent: float | None  # automated / live
+    automatable_percent: float | None  # automated / (live - cannot be automated)
+
+
+class DashboardPriority(BaseModel):
+    priority: str
+    total: int = 0
+    automated: int = 0
+
+
+class DashboardSuite(BaseModel):
+    id: int
+    name: str
+    total: int  # live cases
+    automated: int
+    to_be_automated: int
+    pending_review: int
+
+
+class DashboardArea(BaseModel):
+    """A top-level section with everything under it."""
+
+    section_id: int
+    suite_id: int
+    suite: str
+    name: str
+    total: int = 0
+    automated: int = 0
+
+
+class DashboardReview(BaseModel):
+    count: int
+    oldest_at: datetime | None
+    suite_id: int | None  # the suite with the most cases waiting
+
+
+class DashboardDay(BaseModel):
+    date: Day
+    passed: int = 0
+    failed: int = 0
+    blocked: int = 0
+    skipped: int = 0
+    retest: int = 0
+    untested: int = 0
+
+
+class DashboardResults(BaseModel):
+    recorded: int
+    executed: int  # passed, failed, blocked, retest (not skipped)
+    passed: int
+    pass_rate: float | None
+    previous_pass_rate: float | None  # the period just before
+    tested_cases: int
+    days: list[DashboardDay]
+
+
+class DashboardCaseRow(BaseModel):
+    id: int
+    suite_id: int
+    title: str
+    automated: bool
+    count: int  # failures, or flips between passed and failed
+    results: int
+    last_at: datetime | None = None
+    last_status: str | None = None
+
+
+class DashboardRun(RunStats):
+    id: int
+    name: str
+    created_at: datetime
+    source: str
+    closed: bool
+
+
+class DashboardAutomation(BaseModel):
+    agents: int
+    agents_online: int
+    jobs: dict[str, int]  # in the period, per status
+    last_job_at: datetime | None
+    catalog_managed: int  # live cases that follow an automated test
+
+
+class Dashboard(BaseModel):
+    days: int
+    generated_at: datetime
+    cases_total: int
+    states: dict[str, int]
+    coverage: DashboardCoverage
+    priorities: list[DashboardPriority]
+    suites: list[DashboardSuite]
+    areas: list[DashboardArea]
+    review: DashboardReview
+    results: DashboardResults
+    failing: list[DashboardCaseRow]
+    flaky: list[DashboardCaseRow]
+    runs: list[DashboardRun]
+    runs_in_period: int
+    automation: DashboardAutomation

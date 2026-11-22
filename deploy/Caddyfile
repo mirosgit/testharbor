@@ -8,8 +8,14 @@
 		-Server
 	}
 
-	# JUnit uploads can be large.
-	request_body {
+	# JUnit uploads can be large; agents' HTML reports (traces, videos) even more
+	# (the backend's MAX_REPORT_MB, 500 by default).
+	@report path /api/runs/*/report
+	@other not path /api/runs/*/report
+	request_body @report {
+		max_size 500MB
+	}
+	request_body @other {
 		max_size 60MB
 	}
 

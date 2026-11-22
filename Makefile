@@ -24,7 +24,7 @@ test-backend:  ## pytest against the testharbor_test database
 	docker compose exec backend pytest -q
 
 test-cli:
-	docker run --rm -v "$(CURDIR)/cli:/src:ro" python:3.12-slim sh -c \
+	docker run --rm -v "$(CURDIR)/cli:/src:ro" python:3.12 sh -c \
 	  'cp -r /src /tmp/cli && cd /tmp/cli && rm -rf .venv && pip install -q -e ".[dev]" && pytest -q'
 
 E2E_EMAIL ?= e2e-admin@testharbor.local
@@ -34,6 +34,23 @@ e2e:           ## Playwright smoke tests against the running stack (uses a throw
 	printf '%s\n' "$$E2E_PASSWORD" | docker compose exec -T backend python -m app.manage create-admin \
 	  --email $(E2E_EMAIL) --name "E2E Admin" --password-stdin --update >/dev/null && \
 	E2E_EMAIL=$(E2E_EMAIL) E2E_PASSWORD="$$E2E_PASSWORD" docker compose --profile e2e run --rm e2e
+
+runner:        ## start the test runner (RUNNER_* in .env, see docs/runner.md)
+	@test -n "$$(grep -E '^RUNNER_TOKEN=.+' .env 2>/dev/null)" || { echo "Set RUNNER_TOKEN in .env first (make runner-token)"; exit 1; }
+	mkdir -p runner-secrets && chmod 700 runner-secrets
+	docker compose --profile runner up -d --build runner
+	@echo "Logs: docker compose logs -f runner"
+
+prod-runner:   ## production: start the test runner next to the production stack
+	@test -n "$$(grep -E '^RUNNER_TOKEN=.+' .env 2>/dev/null)" || { echo "Set RUNNER_TOKEN in .env first (make prod-runner-token)"; exit 1; }
+	mkdir -p runner-secrets && chmod 700 runner-secrets
+	$(PROD) --profile runner up -d --build runner
+
+prod-runner-token: ## production: print a new API token for the test runner
+	$(PROD) exec -T backend python -m app.manage create-agent-token --quiet
+
+runner-token:  ## print a new API token for the test runner
+	docker compose exec -T backend python -m app.manage create-agent-token --quiet
 
 prod-up:       ## production: HTTPS via Caddy (needs DOMAIN, SECRET_KEY, DB_PASSWORD in .env)
 	$(PROD) up -d --build

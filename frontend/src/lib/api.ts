@@ -2,6 +2,10 @@ import type {
   AutomationAgent,
   AutomationJob,
   AutomationJobDetail,
+  CatalogApplied,
+  CatalogPreview,
+  Dashboard,
+  RunParams,
   CaseBulkUpdate,
   CaseSort,
   CaseValues,
@@ -107,7 +111,15 @@ export interface Paging {
 export const api = {
   startAutotests: (
     projectId: number,
-    body: { run_id?: number; name?: string; case_ids?: number[]; only_failed?: boolean },
+    body: {
+      run_id?: number;
+      name?: string;
+      case_ids?: number[];
+      only_failed?: boolean;
+      params?: RunParams;
+      agent?: string;
+      branch?: string;
+    },
   ) => request<AutomationJob>(`/api/projects/${projectId}/automation/jobs`, json("POST", body)),
   autotestJobs: (projectId: number, runId?: number) =>
     request<AutomationJob[]>(
@@ -115,7 +127,12 @@ export const api = {
     ),
   autotestJob: (id: number) => request<AutomationJobDetail>(`/api/automation/jobs/${id}`),
   cancelAutotests: (id: number) => request<AutomationJob>(`/api/automation/jobs/${id}/cancel`, json("POST")),
+  dashboard: (projectId: number, days: number) =>
+    request<Dashboard>(`/api/projects/${projectId}/dashboard?days=${days}`),
   agents: (projectId: number) => request<AutomationAgent[]>(`/api/projects/${projectId}/automation/agents`),
+  catalog: (projectId: number) => request<CatalogPreview>(`/api/projects/${projectId}/automation/catalog`),
+  applyCatalog: (projectId: number, body: { uploaded_at: string; links: Record<string, number>; skip: string[] }) =>
+    request<CatalogApplied>(`/api/projects/${projectId}/automation/catalog/apply`, json("POST", body)),
 
   setupStatus: () => request<{ has_users: boolean }>("/api/auth/setup-status"),
   login: (email: string, password: string) =>
@@ -131,6 +148,7 @@ export const api = {
   updateUser: (id: number, body: { role?: Role; is_active?: boolean; unlock?: boolean; name?: string }) =>
     request<AdminUser>(`/api/users/${id}`, json("PATCH", body)),
   resetLink: (id: number) => request<InviteLink>(`/api/users/${id}/reset-link`, json("POST")),
+  deleteUser: (id: number) => request<void>(`/api/users/${id}`, json("DELETE")),
   invites: () => request<Invite[]>("/api/invites"),
   createInvite: (email: string, role: Role) =>
     request<InviteLink>("/api/invites", json("POST", { email, role })),
@@ -200,6 +218,8 @@ export const api = {
   updateRun: (id: number, body: { name?: string; description?: string; closed?: boolean; report_url?: string | null }) =>
     request<TestRun>(`/api/runs/${id}`, json("PATCH", body)),
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, json("DELETE")),
+  deleteRuns: (projectId: number, ids: number[]) =>
+    request<{ deleted: number }>(`/api/projects/${projectId}/runs/delete`, json("POST", { ids })),
   runCases: (id: number) => request<RunCase[]>(`/api/runs/${id}/cases`),
   addRunCases: (id: number, sel: RunSelection) =>
     request<TestRun>(`/api/runs/${id}/cases`, json("POST", sel)),

@@ -13,6 +13,6 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  // Everything except the login page, API/docs proxies and static assets.
-  matcher: ["/((?!login|invite/|api|docs|openapi.json|_next|favicon.ico|.*\\.[a-z0-9]+$).*)"],
+  // Everything except the login page, API/docs proxies, runs' reports (a signed link) and static assets.
+  matcher: ["/((?!login|invite/|api|docs|openapi.json|r/|_next|favicon.ico|.*\\.[a-z0-9]+$).*)"],
 };

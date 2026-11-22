@@ -3,14 +3,15 @@
 A user starts a job (all tests, or selected cases); an agent (`testcli agent`) running on
 the machine that has the tests claims it, runs its locally configured command, streams the
 output here and uploads the report into the job's run. The server never sends commands:
-only case ids, which the agent turns into a `--grep`.
+only case ids, which the agent turns into a `--grep`, and values of the run options the agent
+itself offers (its `--options` file), which it checks and passes on as environment variables.
 """
 
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -116,8 +117,9 @@ async def start_job(project_id: int, body: JobIn, session: Session, principal: C
         await session.flush()
     await add_cases_to_run(session, run.id, case_ids)
 
-    job = AutomationJob(project_id=project_id, run_id=run.id, case_ids=case_ids,
-                        requested_by_id=principal.user.id)
+    target = " ".join(body.agent.split()) if body.agent else None
+    job = AutomationJob(project_id=project_id, run_id=run.id, case_ids=case_ids, params=body.params,
+                        target_agent=target, branch=body.branch, requested_by_id=principal.user.id)
     session.add(job)
     await session.commit()
     await session.refresh(job, ["requested_by"])
@@ -166,7 +168,8 @@ async def list_agents(project_id: int, session: Session) -> list[AgentOut]:
         .order_by(AutomationAgent.last_seen_at.desc())
     )
     now = _now()
-    return [AgentOut(name=a.name, last_seen_at=a.last_seen_at, online=now - a.last_seen_at < AGENT_ONLINE)
+    return [AgentOut(name=a.name, last_seen_at=a.last_seen_at, online=now - a.last_seen_at < AGENT_ONLINE,
+                     options=a.options or [], info=a.info or {})
             for a in rows]
 
 
@@ -179,18 +182,25 @@ async def claim_job(project_id: int, body: AgentClaim, session: Session, princip
     """Agents poll this: takes the oldest queued job of the project, or returns 204."""
     await get_or_404(session, Project, project_id)
     name = " ".join(body.agent.split())
+    options = [o.model_dump(exclude_none=True) for o in body.options]
+    info = body.info.model_dump(exclude_defaults=True)
     await session.execute(
         pg_insert(AutomationAgent)
-        .values(project_id=project_id, name=name, user_id=principal.user.id, last_seen_at=_now())
+        .values(project_id=project_id, name=name, user_id=principal.user.id, last_seen_at=_now(), options=options,
+                info=info)
         .on_conflict_do_update(
             constraint="uq_automation_agents_project_name",
-            set_={"last_seen_at": _now(), "user_id": principal.user.id},
+            set_={"last_seen_at": _now(), "user_id": principal.user.id, "options": options, "info": info},
         )
     )
     await _expire_stale(session, project_id)
+    # A job for another agent is left alone; a job for a branch needs a server (repo) agent.
+    mine = or_(AutomationJob.target_agent.is_(None), AutomationJob.target_agent == name)
+    if body.info.mode != "repo":
+        mine = and_(mine, AutomationJob.branch.is_(None))
     job = await session.scalar(
         select(AutomationJob)
-        .where(AutomationJob.project_id == project_id, AutomationJob.status == JobStatus.queued)
+        .where(AutomationJob.project_id == project_id, AutomationJob.status == JobStatus.queued, mine)
         .order_by(AutomationJob.id)
         .limit(1)
         .with_for_update(skip_locked=True, of=AutomationJob)
@@ -203,7 +213,12 @@ async def claim_job(project_id: int, body: AgentClaim, session: Session, princip
     job.started_at = job.heartbeat_at = _now()
     await session.commit()
     await session.refresh(job, ["requested_by"])
-    return JobOut.model_validate(job)
+    keys = list(await session.scalars(
+        select(TestCase.automation_key)
+        .where(TestCase.id.in_(job.case_ids), TestCase.automation_key.is_not(None))
+        .order_by(TestCase.id)
+    )) if job.case_ids else []
+    return JobOut.model_validate(job).model_copy(update={"automation_keys": keys})
 
 
 @router.post("/automation/jobs/{job_id}/progress", response_model=JobControl)

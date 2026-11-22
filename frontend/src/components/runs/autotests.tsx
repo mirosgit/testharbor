@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Copy, Loader2, Play, Square } from "lucide-react";
+import { Bot, Loader2, Play, Square } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -19,15 +19,33 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, ApiError } from "@/lib/api";
-import type { AutomationJob, JobStatus } from "@/lib/types";
+import type { AutomationAgent, AutomationJob, JobStatus, RunParams } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+import {
+  describeParams,
+  initialParams,
+  optionsAgent,
+  rememberedParams,
+  rememberParams,
+  RunOptionsForm,
+} from "./run-options";
 
 const ACTIVE: JobStatus[] = ["queued", "running"];
 export const isActive = (j?: AutomationJob | null) => !!j && ACTIVE.includes(j.status);
 
 const fail = (e: unknown) => toast.error(e instanceof ApiError ? e.message : "Something went wrong");
 
-/** Shows whether an agent is polling this project, and how to start one if not. */
+/** "local · ~/qa-tests · feature-x (uncommitted changes)" */
+export function agentWhere(a: AutomationAgent): string {
+  const i = a.info ?? {};
+  if (i.mode === "repo")
+    return ["server", i.repo, i.branches?.length ? `${i.branches.length} branches` : ""].filter(Boolean).join(" · ");
+  const parts = [i.mode, i.folder, i.branch && `${i.branch}${i.dirty ? " (uncommitted changes)" : ""}`];
+  return parts.filter(Boolean).join(" · ");
+}
+
+/** Shows whether an agent is polling this project, and how to connect one if not. */
 export function AgentStatus({ projectId }: { projectId: number }) {
   const { data: agents, isLoading } = useQuery({
     queryKey: ["agents", projectId],
@@ -38,47 +56,33 @@ export function AgentStatus({ projectId }: { projectId: number }) {
   if (isLoading) return null;
   if (online.length)
     return (
-      <p className="flex items-center gap-2 text-sm" data-testid="agent-status">
-        <span className="size-2 rounded-full bg-status-passed" />
-        Agent online: <b>{online.map((a) => a.name).join(", ")}</b>
-      </p>
+      <div className="grid gap-1 text-sm" data-testid="agent-status">
+        {online.map((a) => (
+          <p key={a.name} className="flex min-w-0 items-start gap-2">
+            <span className="mt-1.5 size-2 shrink-0 rounded-full bg-status-passed" />
+            <span className="min-w-0">
+              Agent online: <b>{a.name}</b>
+              {agentWhere(a) && <span className="block truncate text-xs text-muted-foreground">{agentWhere(a)}</span>}
+            </span>
+          </p>
+        ))}
+      </div>
     );
-  const origin = typeof window === "undefined" ? "" : window.location.origin;
-  const setup = [
-    `export TESTHARBOR_URL=${origin}`,
-    "export TESTHARBOR_TOKEN=<your API token>",
-    `testcli agent --project ${projectId} --report-url http://localhost:9323/index.html`,
-  ].join("\n");
   return (
-    <div className="grid min-w-0 gap-2 rounded-md border border-amber-400 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40" data-testid="agent-status">
+    <div
+      className="grid min-w-0 gap-2 rounded-md border border-amber-400 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40"
+      data-testid="agent-status"
+    >
       <p className="flex items-start gap-2 font-medium">
         <span className="mt-1.5 size-2 shrink-0 rounded-full bg-status-skipped" />
-        No agent is online. The job will wait until one starts.
+        No agent is online. A run waits until one starts.
       </p>
       <p className="text-xs text-muted-foreground">
-        In the folder with the Playwright tests (JSON reporter writing <code>reports/results.json</code>), run the
-        commands below. A token is created in{" "}
-        <Link href="/settings/tokens" className="underline">
-          API tokens
+        Start <code>testcli agent</code> in the folder with the tests.{" "}
+        <Link href={`/projects/${projectId}/autotests/connect`} className="font-medium text-primary underline">
+          How to connect autotests
         </Link>
-        .
       </p>
-      <div className="relative min-w-0">
-        <pre className="overflow-x-auto rounded border bg-background p-2 pr-9 font-mono text-[11px] leading-relaxed">{setup}</pre>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="absolute top-1 right-1"
-          aria-label="Copy commands"
-          onClick={() => {
-            void navigator.clipboard?.writeText(setup);
-            toast.success("Copied");
-          }}
-        >
-          <Copy />
-        </Button>
-      </div>
     </div>
   );
 }
@@ -107,19 +111,34 @@ export function RunAutotestsDialog({
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const runRef = useRef<HTMLButtonElement>(null);
+  const { data: agents } = useQuery({
+    queryKey: ["agents", projectId],
+    queryFn: () => api.agents(projectId),
+    refetchInterval: 5000,
+    enabled: open,
+  });
+  const agent = optionsAgent(agents);
+  const runOptions = agent?.options ?? [];
+  const optionsKey = JSON.stringify(runOptions);
+  const [params, setParams] = useState<RunParams>({});
   useEffect(() => {
     if (!open) return;
     setScope(selectedCount ? "selected" : "all");
     setName(`Autotests ${new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+  // Start from the last run's choices; refill when the agent's options change (e.g. it was restarted).
+  useEffect(() => {
+    if (open) setParams(initialParams(runOptions, rememberedParams(projectId)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, optionsKey, projectId]);
 
   const options: { value: Scope; label: string; hint: string; show: boolean }[] = [
     { value: "all", label: "All autotests", hint: "Runs the whole test suite", show: true },
     {
       value: "selected",
       label: "Selected cases",
-      hint: `${selectedCount} cases, matched by C-ID in test titles or tags`,
+      hint: `${selectedCount} cases, matched by their automation key or by C-ID in test titles or tags`,
       show: selectedCount > 0,
     },
     {
@@ -138,7 +157,9 @@ export function RunAutotestsDialog({
         ...(target.kind === "run" ? { run_id: target.runId } : { name: name.trim() || undefined }),
         case_ids: scope === "selected" ? caseIds : [],
         only_failed: scope === "failed",
+        params: runOptions.length ? params : {},
       });
+      if (runOptions.length) rememberParams(projectId, params);
       toast.success("Autotests queued");
       qc.invalidateQueries({ queryKey: ["autotest-jobs", projectId] });
       qc.invalidateQueries({ queryKey: ["runs", projectId] });
@@ -154,7 +175,7 @@ export function RunAutotestsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-lg"
+        className={cn("max-h-[calc(100dvh-2rem)] overflow-y-auto", runOptions.length ? "sm:max-w-xl" : "sm:max-w-lg")}
         onOpenAutoFocus={(e) => {
           // Radix focuses (and selects) the first input; the primary action is the better start.
           e.preventDefault();
@@ -202,6 +223,9 @@ export function RunAutotestsDialog({
                 </label>
               ))}
           </fieldset>
+          {runOptions.length > 0 && (
+            <RunOptionsForm options={runOptions} value={params} onChange={setParams} />
+          )}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -250,6 +274,8 @@ export function AutotestsPanel({
   });
   const latest = jobsQ.data?.[0];
   const active = isActive(latest);
+  // For the labels of the job's run options (falls back to the raw names).
+  const agentsQ = useQuery({ queryKey: ["agents", projectId], queryFn: () => api.agents(projectId), enabled: !!latest });
   const detailQ = useQuery({
     queryKey: ["autotest-job", latest?.id],
     queryFn: () => api.autotestJob(latest!.id),
@@ -300,7 +326,8 @@ export function AutotestsPanel({
         </span>
         <span className="text-muted-foreground">
           {job.case_ids.length ? `${job.case_ids.length} cases` : "all tests"}
-          {job.agent && ` · ${job.agent}`}
+          {job.branch && ` · ${job.branch}`}
+          {(job.agent ?? job.target_agent) && ` · ${job.agent ?? job.target_agent}`}
           {job.started_at && ` · ${elapsed(job, now)}`}
           {job.exit_code != null && ` · exit ${job.exit_code}`}
           {job.requested_by_name && ` · started by ${job.requested_by_name}`}
@@ -319,6 +346,11 @@ export function AutotestsPanel({
           </Button>
         )}
       </div>
+      {Object.keys(job.params ?? {}).length > 0 && (
+        <p className="mt-1 text-xs break-words text-muted-foreground" data-testid="autotests-params">
+          {describeParams(job.params, optionsAgent(agentsQ.data)?.options)}
+        </p>
+      )}
       {job.message && (
         <p className={cn("mt-1 text-sm", job.status === "error" ? "text-status-failed" : "text-muted-foreground")}>
           {job.message}

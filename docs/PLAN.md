@@ -173,10 +173,12 @@ Decisions:
 | Runs, results, JUnit upload | ✓ | ✓ |
 | Own API tokens | ✓ | ✓ |
 | Delete projects | ✓ | – |
-| Users: invite, change role, deactivate, reset password | ✓ | – |
+| Users: invite, change role, deactivate, delete, reset password | ✓ | – |
 | See and revoke other users' tokens | ✓ | – |
 
-An admin cannot demote or deactivate themselves. The system always keeps at least one active admin.
+An admin cannot demote, deactivate or delete themselves. The system always keeps at least one active admin.
+
+Deleting a user (`DELETE /api/users/{id}`, added later) removes them for good: their API tokens and reset links go (cascade), and runs, results, jobs and agents they made stay with the user set to null, so the history no longer shows their name. Deactivating keeps the name and can be undone, so the UI suggests it in the confirmation. The e2e teardown deletes the users the tests invite.
 
 ## UI
 
@@ -304,3 +306,158 @@ An admin cannot demote or deactivate themselves. The system always keeps at leas
 - **Agent (`testcli agent`).** Uses only the standard library. Removes the old report before each run, so a stale report is never uploaded. Strips ANSI codes. Stops the tests when the job is cancelled in TestHarbor, and reports the job as interrupted on Ctrl+C or SIGTERM. Verified end to end with real Playwright tests in Docker.
 - **UI.** "Run autotests" on the runs page, in the case selection bar and on a run page. The dialog shows whether an agent is online and how to start one. The run page has a panel with status, elapsed time, live output and Cancel.
 
+
+## Phase 15: run options and results per configuration
+
+Built to run test suites that need choices per run (an environment, roles, a suite, a browser) from TestHarbor, without TestHarbor knowing about pytest or roles.
+
+- **Model (migration 0010).**
+  - `automation_agents.options` (JSONB): the run options the agent offers, refreshed on every `claim`.
+  - `automation_jobs.params` (JSONB): the values chosen for a job, e.g. `{"ENV": "qa", "ROLES": ["admin"], "HEADED": true}`.
+  - `test_results.config`: the configuration a result ran in (a role, a browser, a Playwright project).
+- **Run options.** `testcli agent --options FILE` reads `{"options": [{name, label, type, choices, default, hint}]}`. `type` is `choice`, `multi` or `bool`. `name` is an environment variable of the agent's command. It must be UPPER_CASE and cannot be `PATH`, `LD_*`, `PYTHON*`, `BASH_ENV`, `TESTHARBOR_*` and similar. The dialog shows the options of an online agent (else the last agent seen with options) and remembers the last choice per project in the browser.
+- **Security.** The server still never sends a command. It stores the values a person picked. The agent checks every value against its own file before running. An unknown option or a value outside its choices fails the job with nothing run. Then it sets one variable per offered option: a choice as is, a multi space-separated, a bool as `1` / `0`. `TESTHARBOR_TOKEN` is no longer passed to the tests.
+- **Reports per job.** `--report` and `--report-url` may contain `{job_id}`, and `--report` may be a glob. Every matching file written during the job is uploaded as one import, for example a JUnit file per role in `reports/t{job_id}/*/junit.xml`. Files older than the job are ignored, so job ids repeating after a database reset never upload stale results.
+- **Config per result.** A `config` / `configuration` JUnit property, or the project of a multi-project Playwright JSON report, fills `test_results.config`. One scenario that ran as several roles is one case with one result per role, each labelled with its role. The worst status stays the current one.
+- **A test project's side** (example: a pytest-bdd suite with one process per role): tags such as `@case:C142` on scenarios become `case_id`, `automation_key` and `config` (role name) JUnit properties. Its runner reads `TESTHARBOR_CASE_IDS` / `TESTHARBOR_JOB_ID` and writes the options file, and a small script starts the agent.
+
+## Phase 16: catalog of automated tests, synced into cases
+
+Goal: run single automated tests from TestHarbor by selecting their cases, without hand-written case IDs in the tests and without duplicating the manual cases.
+
+- **Model (migration 0011).**
+  - `automation_catalogs`: one per project, the tests the agent last reported. Each test has `key`, `title`, `path`, `description`, `preconditions`, `steps`, `roles`, `tags` and `case_ids`.
+  - `test_cases.catalog_managed`: the case was created from the catalog and follows its test.
+- **Flow.** `testcli agent --catalog FILE` uploads the catalog when it starts (`PUT …/automation/catalog`), and nothing else changes then. The cases page shows "Autotests: N to sync". The preview (`GET …/automation/catalog`) and apply (`POST …/catalog/apply`, guarded by the catalog's `uploaded_at`) do the rest (`app/catalog.py`).
+- **Matching.** Case ids the test is tagged with come first, then the automation key, then a new case. A tagged case wins the key from another case; a catalog case that loses its key becomes Outdated.
+- **Who owns what.**
+  - Catalog cases: title, description, preconditions, steps, roles and tags follow the test on every sync. Priority, owner, sprint, custom fields and the section stay the person's.
+  - Manual cases linked to a test: only `automation_key` and `automation_status` are set.
+  - A catalog case whose test is gone becomes Outdated, and comes back to Active if the test returns. Nothing is deleted.
+- **New cases** go into the "Autotests" suite, in sections from the path (domain › feature). Type is smoke or regression from the tags. Roles take the project's spelling, as on import. Line breaks in steps become Markdown hard breaks.
+- **No duplicates.** For each new test, the preview suggests up to 3 manual cases with similar titles: word overlap plus sequence ratio, ≥ 0.45. The person picks per test: create a case, link to a suggestion, link to any case by ID, or skip. Only manual cases can be link targets.
+- **Running selected cases.** The claim answer now carries the automation keys of the job's cases. The agent writes `{"case_ids", "automation_keys"}` to a temp file named by `TESTHARBOR_SELECTION`. A custom runner selects its tests by key, or by a case tag. Outline rows share the scenario's key, so they become one case with a result per row and role.
+- **Autotests page** (`/projects/{id}/autotests`, a tab next to Test runs). It holds the tree of the catalog's tests (path › test) with search and tri-state check boxes, the agent's status and run options, **Run selected** / **Run all**, and the recent jobs. Tests without a case are shown but can't be picked, and the page offers the sync, because their results would have nowhere to go. "Run autotests" on the runs page leads here; the dialog stays for selected cases on the cases page and for re-running a run's failed cases. The project header now fits phone width: the nav scrolls, and the project name is truncated.
+
+## Phase 17: anyone can connect: testharbor.toml, built-in catalogs, local agents
+
+Goal: any team connects its autotests in a few minutes. Two kinds of agents: local (a folder as it is) and, next, server (a git branch in a clean checkout).
+
+- **`testharbor.toml`** (or `.json`) next to the tests holds `url`, `project`, `framework`, `command`, `report`, `select`, `catalog`, `options`, `prepare`, `env`, `name`, `poll`. `testcli agent` finds it in the folder or a parent and needs no flags.
+  - Order of precedence: flags, then the environment, then the file, then the `TESTHARBOR_*` lines of the `.env` next to it, which are read as plain text and never executed.
+  - The token is never in the file. An unknown setting is an error.
+- **Presets per framework.**
+  - `playwright`: `npx playwright test --reporter=list,json,html`. The JSON report goes to `reports/results.json` (via `PLAYWRIGHT_JSON_OUTPUT_NAME`). The selection is a `--grep` of the selected tests' titles plus `C<id>` tags. The catalog comes from `--list --reporter=json`.
+  - `pytest`: `--junitxml=reports/junit.xml`. The selection is node ids as arguments. The catalog comes from `--collect-only -q`, one test per node id without parameters, with a title from the function name.
+  - `custom`: everything from the file. The selection is only the `TESTHARBOR_SELECTION` file.
+- **Keys line up with reports.** The Playwright JSON import sets `automation_key` = `<file>::<describe › title>`, the same in every project, so all projects of a test land in one case with a result per project. JUnit keys of parametrized tests also match without the `[...]` part.
+- **`testcli init`** detects Playwright or pytest (and uv / poetry for pytest), writes `testharbor.toml`, and warns if `.env` is not git-ignored.
+- **`prepare`** runs at start and after every job, then options and catalog are re-read and sent, so changed tests show up without restarting the agent.
+- **Agent info (migration 0012).** `automation_agents.info` holds the mode, folder (`~`-shortened), branch, short commit, uncommitted changes and framework, shown in the agent status.
+- **UI.** Autotests › **Connect autotests** walks through install, token, `testcli init`, `.env` and `testcli agent` for the chosen framework, with the formats of the catalog and the selection for custom runners. An empty Autotests page leads there.
+
+## Phase 18: server runner (a git branch), choosing where a run goes
+
+Goal: deploy TestHarbor on a server, pick a branch of the test repository (e.g. on Bitbucket) when starting a run, and the latest commit of that branch runs, with little setup. Local agents keep running a folder as it is.
+
+- **Server agent** (`testcli agent --repo URL`, `cli/src/testharbor_cli/repo.py`).
+  - It keeps one clone (`--no-checkout`) in its workdir and fetches before every job. Each job gets a fresh worktree of `origin/<branch>`, detached at the latest commit, which is removed after the run.
+  - `testharbor.toml` is found at the root of the checkout or, if there is only one, up to two levels down; `--repo-path` picks one.
+  - The tests' secrets are copied in: `--env-file` becomes `.env` next to the config, and the `--secret-files` folder is copied at the same paths.
+  - Then `setup` (a new key, server only) runs, followed by `prepare`, options and the tests. Output goes into the job log, and the run gets the branch and commit.
+  - Options and the catalog come from the default branch (re-sent after a run on it). Branches are re-listed every minute.
+  - HTTPS credentials (`TESTHARBOR_GIT_TOKEN`, `TESTHARBOR_GIT_USER`, default `x-token-auth`) reach git only through `GIT_ASKPASS`. They are masked in errors and never passed to the tests, like `TESTHARBOR_TOKEN`.
+- **Choosing where a run goes (migration 0013).**
+  - `automation_jobs.target_agent` and `branch` exist; a branch name is validated (git-safe characters, no `..`, no leading `-`).
+  - `claim` gives an agent only jobs that are untargeted or targeted at it, and never gives a job with a branch to a local agent.
+  - Agents report `info.mode` (`local` / `repo`), and a server agent also its repository (without credentials), default branch and branches.
+  - The claim answer and the jobs list carry both fields.
+- **Docker** (`deploy/runner/`, the `runner` service of `docker-compose.yml`, profile `runner`).
+  - The image is based on the Playwright image (Node, browser libraries) plus git, uv 0.13.7 and testcli. `/root/.cache` is a volume for uv, Pythons and browsers.
+  - Settings come from `RUNNER_*` in `.env`, and secrets from `runner-secrets/` (`tests.env`, `files/`, `ssh/`), mounted read-only.
+  - `make runner` / `make prod-runner` start it, and `make runner-token` creates a token for the "Autotests agent" service user (`python -m app.manage create-agent-token`). Guide: `docs/runner.md`.
+- **Local secrets.** A new `secrets` key holds commands a local agent runs in the user's terminal when it starts, such as an MFA prompt for a short-lived session; `--no-secrets` skips them. Server agents skip them and say so in the log.
+- **Expected Result.** Catalog tests may carry `expected_result`; otherwise the last step's expected result fills the case's Expected Result. It is a managed field of catalog cases.
+- **UI.**
+  - The Autotests page has **Run on**: the online agents, local ones with their folder and branch, server ones with their repository. A server agent also gets a **Branch** picker (search, default branch first).
+  - The last choice is remembered per project. Jobs show their branch and agent.
+  - Connect autotests is split into "On my computer" and "On a server". It covers secrets in both.
+- **Verified end to end:**
+  - the image built and ran against the local stack with a git repository: tests in a subfolder, a branch with an extra failing test, a secrets file read by a test;
+  - `uv sync` worked in the container;
+  - results and branch/commit arrived on the run.
+
+## Phase 19: links from results to the HTML report
+
+- **`report_html`** (a `testharbor.toml` key; the Playwright preset writes `reports/html/{job_id}/index.html` via `PLAYWRIGHT_HTML_OUTPUT_DIR`) names the report page.
+  - A local agent serves the page's first folder (never the whole project) on 127.0.0.1:`report_port` (default 9323, or a free port) in a thread (`cli/.../serve.py`). It sets the run's `report_url` to the page, with `{job_id}` filled in.
+  - A server agent copies the page's folder out of the checkout before removing it, keeps the latest 50 and serves them on 9323 (published on 127.0.0.1 by default). It links runs to `TESTHARBOR_REPORTS_URL/job-<id>/<page>`.
+- **Per-result links** use the existing `pw_test_id` → `#?testId=` mechanism. A project that builds its own Playwright report can put the report's test id into a `pw_test_id` JUnit property to get the same per-test links.
+- `{job_id}` is also filled into the `env` values of the config.
+
+## Security fix: automation keys never become command options
+
+The security review found that in `select = "args"` mode (the pytest preset) the agent appended the job's automation keys straight to the pytest argv. Any user can edit a case's automation key, so a tester could inject options: `--basetemp=<dir>` deletes a folder, `--junitxml=<file>` overwrites a file, `--log-file*` writes chosen text (code execution through a `.pth`), and `--tx` runs commands with pytest-xdist.
+
+- **Agent (the trust boundary).** In `args` mode a key must be a plain relative test id: no leading `-`, no absolute or drive path, no `..` (`safe_test_id`). It must also be one of the agent's own tests: `known_keys` from its catalog, and for a server agent from the job's checkout. Otherwise the job fails with "refusing to run" and nothing starts. `grep` mode escapes keys into one `--grep` value. `env` mode hands them to the user's runner, which must validate them against the tests it knows.
+- **Server (defence in depth).** `automation_key` (cases, CSV/JSON import) and catalog test keys are rejected with 422 if they start with `-`. A JUnit auto-created case gets no automation key in that case.
+
+## Deleting runs: admins only, several at once
+
+- `DELETE /api/runs/{id}` now needs the admin role. It was open to everyone before.
+- `POST /api/projects/{id}/runs/delete` (`{"ids": [...]}`, admins) deletes several runs of the project. Ids of other projects are ignored. Results, run cases and autotest jobs go with them (database cascades).
+- If a running job's run is deleted, the agent's `progress` call gets 404. The agent treats that as a cancel and stops the tests.
+- UI: admins get check boxes and **Delete** in the runs list. "Delete run" in a run's menu is shown to admins only.
+- Local agents: a failing `secrets` command is a warning, and the agent still starts and serves the reports.
+
+## Reports stored in TestHarbor (replaces serving them from the agent)
+
+Reports served by the agent only opened while that agent ran, and only on that machine, so they now live in TestHarbor.
+
+- **Upload.** After uploading the results, the agent zips the folder of `report_html` (no symlinks) and sends it with `PUT /api/runs/{id}/report?page=…` (any signed-in user or token).
+- **Storage** (`app/reports.py`). TestHarbor unpacks the zip into `REPORTS_DIR/<run id>` (the `reports-data` volume) and replaces the run's earlier report.
+  - Unsafe members are skipped: absolute paths, `..`, drive letters, symlinks.
+  - Limits: 20 000 files, and `MAX_REPORT_MB` (500) unpacked, counted while writing because the sizes in the zip's directory can lie.
+  - The run's `report_url` becomes `/r/<token>/<page>`; the token is the run id signed with SECRET_KEY. Results keep their `#?testId=` links.
+- **Serving.** `GET /r/{token}/{path}` (Next rewrites `/r/*`, and the session gate skips it) needs no cookie: the signed path is the access, so the report's relative files load.
+  - Every response is `Content-Security-Policy: sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals`, without `allow-same-origin`, plus `nosniff` and `no-referrer`. A report (HTML and JavaScript written by the tests) runs in an opaque origin, with no access to TestHarbor's cookies, storage or API.
+  - HTML pages get a storage shim first, because Playwright's report reads localStorage and the sandbox would throw. Service-worker trace viewers don't run; trace files download.
+- **Cleanup.** Deleting a run, several runs or a project deletes their reports.
+- **Removed.** The agent's local report server (`serve.py`, `report_port`) and the runner's report port/volume.
+- **Verified in a browser:** a merged Playwright report of a role-based suite opens from "Open in report" right at the failed test (errors with code, steps, retries), with no console errors.
+
+## Retries in JUnit reports
+
+pytest-rerunfailures (and similar) writes a test once per attempt. The earlier attempts often have no failure element, so they looked like passes, and a case got a bogus passed result next to the real one. `parse_junit` now keeps only the last attempt of a test (same classname, name and file within one report). If an earlier attempt needed a retry and the last one passed, the result says "Flaky: passed on retry N". If every attempt failed, its log starts with "Failed in all N attempts".
+
+- **Upload size.** Next.js cuts proxied request bodies at 10 MB by default, so a larger report failed with a 500 and the run got no link. `experimental.proxyClientMaxBodySize` is now `500mb` (matching `MAX_REPORT_MB`). In production Caddy allows 500 MB on `/api/runs/*/report` and keeps 60 MB for everything else.
+
+## Phase 20: case text from the tests' code, Pending review
+
+Cases created from autotests used to have only a title (built-in catalogs) and went straight to Active.
+
+- **States.** A catalog case is created as Pending review. When a sync rewrites its text (any managed field), it goes back to Pending review, so nobody misses the new text. A moved automation key alone keeps the state. A removed test's case comes back from Outdated as Pending review. The preview lists `state` among the changes.
+- **Text from the code** (`cli/src/testharbor_cli/describe.py`). Only what people wrote in the tests is used, no generated prose. A test that states nothing gets "Automated test in `file:line`".
+  - Docstrings and comments: prose is the description; `Preconditions:` / `Steps:` / `Expected result:` sections (unindented headers) fill the fields; steps are `1. action -> expected` items, with an `Expected: …` line under a step; Given/When/Then lines map like Gherkin.
+  - Gherkin (pytest-bdd and docstrings): Given → preconditions, each When starts a step, Then → its expected result.
+  - Playwright: the comment above `test(…)` (found by the `line` / `column` of `--list --reporter=json`, files under `config.rootDir`), `test.step` titles as steps (bracket matching that skips strings and comments; nested steps become sub-items), annotations `description` / `precondition` / `expected` / `issue` (deduplicated across projects).
+  - pytest: a docstring's first short line becomes the title. Markers become tags (run-control markers such as `parametrize` or `skip` are left out). `case` markers and `C142` / `case:C142` names or tags give `case_ids`.
+  - pytest details come from `catalog_plugin.py`. The agent copies it into a temp dir, prepends that to `PYTHONPATH` and runs `pytest --collect-only -p testharbor_catalog` with `TESTHARBOR_CATALOG_OUT`. It reads docstrings, markers and pytest-bdd templates (`scenario_wrapper_template_registry`, or `__scenario__` in older versions). If loading the plugin fails, the agent falls back to plain node ids.
+- **Checked.** CLI tests cover both a real nested pytest run and a real pytest-bdd Scenario Outline. Real `playwright test --list` output (v1.65, two projects) was checked by hand.
+
+
+## Phase 21: project dashboard
+
+A Dashboard tab (`/projects/{id}/dashboard`, first in the project nav) answers "how are we doing" without exporting anything.
+
+- **API.** `GET /api/projects/{id}/dashboard?days=30` (1–365; the UI offers 7, 30 and 90) counts everything in the database in one request (`app/routers/dashboard.py`).
+  - "Live" cases are the ones not Outdated or Rejected; coverage and the breakdowns count only those. Coverage is automated / live; "of what can be automated" leaves out manual cases whose automation progress is "Cannot be automated".
+  - Areas are top-level sections with everything under them (at most 60). Priorities: automated share per priority.
+  - Review queue: Pending review count, the oldest `updated_at`, and per suite.
+  - Results are the ones recorded in the period, per UTC day. Pass rate = passed / (passed, failed, blocked, retest); skipped and untested don't count. It is compared with the period just before.
+  - Failing most: the 8 cases with the most failed results in the period, latest first on ties. Flaky: the 8 cases whose passed/failed results flip at least twice (a `lag()` window over the period).
+  - The last 14 runs with their status counts; agents online and jobs in the period. The catalog's "to sync" count comes from the existing catalog preview on the client.
+- **UI.** Four headline tiles (coverage, Pending review, pass rate with a sparkline and the change in points, autotests with a "to sync" button that opens the sync dialog), results per day (stacked columns, hover and arrow-key tooltip, a table view), the case mix (automation and state bars with legends), coverage by area (largest or least covered first) and by priority, failing, flaky and recent runs.
+  - Every legend row, area, priority, case and run links to what it counts. The cases page reads `state`, `automation_status`, `priority` and `automation_progress` (comma-separated) from the URL once into its filters, then drops them from the URL.
+  - Charts are plain HTML/SVG, no chart library. Colors are tokens in `globals.css` (`--chart-*`, separate light and dark steps): automation is one blue ramp plus gray; case states are hues checked for color-blind separation and always come with a labelled legend; results use the existing status colors.
+  - The data refreshes every minute and on the refresh button. The period lives in the URL (`?days=7`).

@@ -130,3 +130,44 @@ test("sort and paginate the case list", async ({ page }) => {
   await expect(rows.first()).toContainText("Case 55");
   await page.getByLabel("Per page").selectOption("100");
 });
+
+test("Sync autotests: new tests become cases, a similar manual case is linked instead", async ({ page }) => {
+  await login(page);
+  const { project, cases } = await seedProject(page.request, ["Discount codes can be added"]);
+  const step = { action: "When I add a discount code", expected: 'Then the message "Discount Applied" is shown' };
+  const test = (key: string, title: string, path: string[]) => ({
+    key, title, path, description: "From the feature", preconditions: "- Given an order exists",
+    steps: [step], roles: ["Admin"], tags: ["regression"], case_ids: [],
+  });
+  const r = await page.request.put(`/api/projects/${project.id}/automation/catalog`, {
+    data: { agent: "qa-box", tests: [
+      test("t.py::test_add", "A discount code is added to an order", ["Checkout", "Discount codes"]),
+      test("t.py::test_filter", "Orders are filtered by customer", ["Checkout", "Filters"]),
+      test("t.py::test_export", "Orders are exported", ["Orders", "Export"]),
+    ] },
+  });
+  expect(r.ok()).toBeTruthy();
+
+  await page.goto(`/projects/${project.id}/cases`);
+  await expect(page.getByTestId("catalog-strip")).toContainText("Autotests: 3 to sync");
+  await page.getByTestId("catalog-strip").click();
+  const dialog = page.getByTestId("catalog-dialog");
+  // The suggested manual case, picked from the test's menu.
+  await dialog.getByLabel("What to do with A discount code is added to an order").click();
+  await page.getByRole("option", { name: new RegExp(cases[0].key) }).click();
+  await expect(dialog.getByTestId("catalog-summary")).toHaveText("create 2 · link 1");
+  // Several at once: filter, select what is shown, skip.
+  await dialog.getByLabel("Filter tests").fill("export");
+  await dialog.getByRole("checkbox", { name: "Select all shown tests" }).click();
+  await dialog.getByTestId("catalog-bulk").getByRole("button", { name: "Skip" }).click();
+  await dialog.getByLabel("Filter tests").fill("");
+  await expect(dialog.getByTestId("catalog-summary")).toHaveText("create 1 · link 1 · skip 1");
+  await dialog.getByRole("button", { name: /^Sync \d/ }).click();
+  // The skipped test stays to sync later.
+  await expect(page.getByTestId("catalog-strip")).toContainText("Autotests: 1 to sync");
+
+  const linked = await (await page.request.get(`/api/cases/${cases[0].id}`)).json();
+  expect([linked.automation_key, linked.title]).toEqual(["t.py::test_add", "Discount codes can be added"]);
+  const suites = await (await page.request.get(`/api/projects/${project.id}/suites`)).json();
+  expect(suites.map((s: { name: string }) => s.name)).toContain("Autotests");
+});

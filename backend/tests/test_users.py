@@ -125,6 +125,32 @@ async def test_deactivation_is_immediate(client: AsyncClient, tester: AsyncClien
     await login(tester, TESTER_EMAIL)
 
 
+async def test_delete_user(client: AsyncClient, tester: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]
+    me = (await client.get("/api/auth/me")).json()["id"]
+    assert (await client.delete(f"/api/users/{me}")).status_code == 400  # not yourself
+    assert (await tester.delete(f"/api/users/{me}")).status_code == 403  # admins only
+    assert (await client.delete("/api/users/999999")).status_code == 404
+
+    tester_id = (await tester.get("/api/auth/me")).json()["id"]
+    p = await make.project()
+    run = (await tester.post(f"/api/projects/{p['id']}/runs", json={"name": "By the tester"})).json()
+    token = (await tester.post("/api/tokens", json={"name": "ci"})).json()
+    await client.post(f"/api/users/{tester_id}/reset-link")
+
+    assert (await client.delete(f"/api/users/{tester_id}")).status_code == 204
+    assert tester_id not in [u["id"] for u in (await client.get("/api/users")).json()]
+    assert (await tester.get("/api/projects")).status_code == 401  # signed out
+    # What they made stays; their token and reset link don't.
+    assert (await client.get(f"/api/runs/{run['id']}")).status_code == 200
+    async with _client() as anon:
+        r = await anon.get("/api/projects", headers={"Authorization": f"Bearer {token['token']}"})
+        assert r.status_code == 401
+    assert not (await client.get("/api/invites")).json()
+    # The email can be invited again.
+    await create_user(TESTER_EMAIL, Role.tester, name="Tom Tester")
+    await login(tester, TESTER_EMAIL)
+
+
 async def test_profile_name(tester: AsyncClient) -> None:
     r = await tester.patch("/api/auth/me", json={"name": "  Tamara  "})
     assert r.json()["name"] == "Tamara"

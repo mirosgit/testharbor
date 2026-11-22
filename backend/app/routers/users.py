@@ -96,6 +96,17 @@ async def update_user(user_id: int, body: UserPatch, admin: Admin, session: Sess
     return _admin_out(user)
 
 
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(user_id: int, admin: Admin, session: Session) -> None:
+    """Delete a user for good. Their API tokens and reset links go with them; runs, results and jobs
+    they made stay, without their name. Deactivating keeps the name and can be undone."""
+    user = await get_or_404(session, User, user_id)
+    if user.id == admin.user.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "You can't delete yourself")
+    await session.delete(user)
+    await session.commit()
+
+
 @router.post("/users/{user_id}/reset-link", response_model=InviteLink, status_code=status.HTTP_201_CREATED)
 async def create_reset_link(user_id: int, admin: Admin, session: Session) -> InviteLink:
     """One-time link (72 h) the user opens to set a new password. Send it to them yourself."""

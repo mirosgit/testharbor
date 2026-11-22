@@ -130,6 +130,8 @@ export interface TestCase {
   tags: string[];
   automation_status: AutomationStatus;
   automation_key: string | null;
+  /** Created from the autotests' catalog: its text follows the test. */
+  catalog_managed?: boolean;
   external_id: string | null;
   state: CaseState;
   owner: string | null;
@@ -251,6 +253,8 @@ export interface TestResult {
   error_message: string | null;
   stack_trace: string | null;
   recorded_by: string | null;
+  /** The configuration the test ran in, e.g. a role or a browser ("Super Admin"). */
+  config: string | null;
   created_at: string;
   /** This result's details in the run's HTML report. */
   report_link: string | null;
@@ -371,6 +375,12 @@ export interface AutomationJob {
   status: JobStatus;
   /** Only these cases; empty = all tests. */
   case_ids: number[];
+  /** Values of the agent's run options (environment variables of its command). */
+  params: RunParams;
+  /** Only this agent may take the job. */
+  target_agent: string | null;
+  /** The git branch a server agent runs. */
+  branch: string | null;
   agent: string | null;
   exit_code: number | null;
   message: string | null;
@@ -384,9 +394,162 @@ export interface AutomationJobDetail extends AutomationJob {
   log: string;
 }
 
+export type RunParamValue = string | boolean | string[];
+export type RunParams = Record<string, RunParamValue>;
+
+/** A run option an agent offers (its --options file): an environment variable of its command. */
+export interface AgentOption {
+  name: string;
+  label: string;
+  type: "choice" | "multi" | "bool";
+  choices: { value: string; label: string }[];
+  default?: RunParamValue | null;
+  hint?: string | null;
+}
+
+/** Where an agent runs the tests from. */
+export interface AgentInfo {
+  mode?: "local" | "repo" | null;
+  folder?: string | null;
+  branch?: string | null;
+  commit?: string | null;
+  /** Uncommitted changes in a local folder. */
+  dirty?: boolean | null;
+  framework?: string | null;
+  /** A server agent: its repository (no credentials) and branches. */
+  repo?: string | null;
+  default_branch?: string | null;
+  branches?: string[];
+}
+
 export interface AutomationAgent {
   name: string;
   last_seen_at: string;
   online: boolean;
+  options: AgentOption[];
+  info: AgentInfo;
 }
 
+
+// --- Automated tests' catalog (synced into cases after a preview) ---
+
+export type CatalogAction = "create" | "update" | "link" | "unchanged" | "outdated";
+
+export interface CatalogSuggestion {
+  case_id: number;
+  key: string;
+  title: string;
+  path: string;
+  /** 0..1, how alike the titles read. */
+  score: number;
+}
+
+export interface CatalogItem {
+  action: CatalogAction;
+  /** The test's key; becomes the case's automation key. */
+  key: string;
+  title: string;
+  path: string[];
+  case_id: number | null;
+  case_key: string | null;
+  case_title: string | null;
+  changes: string[];
+  note: string | null;
+  suggestions: CatalogSuggestion[];
+}
+
+export interface CatalogPreview {
+  agent: string | null;
+  uploaded_at: string;
+  suite: string;
+  counts: Record<CatalogAction, number>;
+  items: CatalogItem[];
+}
+
+export interface CatalogApplied {
+  created: number;
+  updated: number;
+  linked: number;
+  outdated: number;
+  skipped: number;
+}
+
+// --- Dashboard ---------------------------------------------------------------------------
+
+export interface DashboardCoverage {
+  live: number;
+  automated: number;
+  to_be_automated: number;
+  manual: number;
+  cannot_be_automated: number;
+  percent: number | null;
+  automatable_percent: number | null;
+}
+
+export interface DashboardDay {
+  date: string;
+  passed: number;
+  failed: number;
+  blocked: number;
+  skipped: number;
+  retest: number;
+  untested: number;
+}
+
+export interface DashboardCaseRow {
+  id: number;
+  suite_id: number;
+  title: string;
+  automated: boolean;
+  count: number;
+  results: number;
+  last_at: string | null;
+  last_status: ResultStatus | null;
+}
+
+export interface DashboardRun {
+  id: number;
+  name: string;
+  created_at: string;
+  source: "manual" | "ci";
+  closed: boolean;
+  total: number;
+  passed: number;
+  failed: number;
+  blocked: number;
+  skipped: number;
+  retest: number;
+  untested: number;
+}
+
+export interface Dashboard {
+  days: number;
+  generated_at: string;
+  cases_total: number;
+  states: Record<CaseState, number>;
+  coverage: DashboardCoverage;
+  priorities: { priority: Priority; total: number; automated: number }[];
+  suites: { id: number; name: string; total: number; automated: number; to_be_automated: number; pending_review: number }[];
+  areas: { section_id: number; suite_id: number; suite: string; name: string; total: number; automated: number }[];
+  review: { count: number; oldest_at: string | null; suite_id: number | null };
+  results: {
+    recorded: number;
+    executed: number;
+    passed: number;
+    pass_rate: number | null;
+    previous_pass_rate: number | null;
+    tested_cases: number;
+    days: DashboardDay[];
+  };
+  failing: DashboardCaseRow[];
+  flaky: DashboardCaseRow[];
+  runs: DashboardRun[];
+  runs_in_period: number;
+  automation: {
+    agents: number;
+    agents_online: number;
+    jobs: Partial<Record<JobStatus, number>>;
+    last_job_at: string | null;
+    catalog_managed: number;
+  };
+}

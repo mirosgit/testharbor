@@ -113,3 +113,60 @@ async def test_append_upload_fills_run_details(client: AsyncClient, make) -> Non
     assert r.status_code == 200, r.text
     run = (await client.get(f"/api/runs/{job['run_id']}")).json()
     assert (run["branch"], run["commit"], run["stats"]["passed"]) == ("main", "abc", 1)
+
+
+async def test_agent_options_and_job_params(client: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]
+    p, s, sec = await make.tree()
+    options = [
+        {"name": "ENV", "label": "Environment", "type": "choice", "default": "dev",
+         "choices": [{"value": "dev", "label": "dev"}, {"value": "qa", "label": "qa"}]},
+        {"name": "ROLES", "label": "Roles", "type": "multi", "default": [], "hint": "None = every role",
+         "choices": [{"value": "admin", "label": "Admin"}]},
+        {"name": "HEADED", "type": "bool", "default": False},
+    ]
+    claim = await client.post(f"/api/projects/{p['id']}/automation/claim", json={"agent": "box", "options": options})
+    assert claim.status_code == 204, claim.text
+    (agent,) = (await client.get(f"/api/projects/{p['id']}/automation/agents")).json()
+    assert agent["options"][0]["choices"][1] == {"value": "qa", "label": "qa"}
+    assert agent["options"][2] == {"name": "HEADED", "label": "", "type": "bool", "choices": [], "default": False,
+                                   "hint": None}
+
+    params = {"ENV": "qa", "ROLES": ["admin"], "HEADED": True}
+    job = (await client.post(f"/api/projects/{p['id']}/automation/jobs", json={"params": params})).json()
+    assert job["params"] == params
+    claimed = await client.post(f"/api/projects/{p['id']}/automation/claim", json={"agent": "box"})
+    assert claimed.json()["params"] == params
+    # An agent restarted without options offers none.
+    (agent,) = (await client.get(f"/api/projects/{p['id']}/automation/agents")).json()
+    assert agent["options"] == []
+
+    for bad in ({"env": "qa"}, {"ENV": {"x": 1}}, {"ENV": "x" * 201}, {"PATH; rm": "1"}):
+        r = await client.post(f"/api/projects/{p['id']}/automation/jobs", json={"params": bad})
+        assert r.status_code == 422, bad
+    bad_option = await client.post(f"/api/projects/{p['id']}/automation/claim",
+                                   json={"agent": "box", "options": [{"name": "env", "type": "choice"}]})
+    assert bad_option.status_code == 422
+
+
+async def test_jobs_for_one_agent_and_for_a_branch(client: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]
+    p, s, sec = await make.tree()
+    url = f"/api/projects/{p['id']}/automation"
+    server = {"agent": "server", "info": {"mode": "repo", "repo": "bitbucket.org/acme/shop-tests", "default_branch": "main",
+                                          "branches": ["main", "feature/x"]}}
+    laptop = {"agent": "laptop", "info": {"mode": "local", "folder": "~/qa"}}
+
+    branch_job = (await client.post(f"{url}/jobs", json={"branch": "feature/x"})).json()
+    assert branch_job["branch"] == "feature/x" and branch_job["target_agent"] is None
+    # A local agent never takes a job for a branch; a server agent does.
+    assert (await client.post(f"{url}/claim", json=laptop)).status_code == 204
+    assert (await client.post(f"{url}/claim", json=server)).json()["id"] == branch_job["id"]
+
+    for_laptop = (await client.post(f"{url}/jobs", json={"agent": "laptop"})).json()
+    assert (await client.post(f"{url}/claim", json=server)).status_code == 204
+    assert (await client.post(f"{url}/claim", json=laptop)).json()["id"] == for_laptop["id"]
+
+    agents = {a["name"]: a for a in (await client.get(f"{url}/agents")).json()}
+    assert agents["server"]["info"]["branches"] == ["main", "feature/x"]
+
+    for bad in ("-rf", "a..b", "x y", "a;rm", "refs//x", "x.lock", "x/"):
+        assert (await client.post(f"{url}/jobs", json={"branch": bad})).status_code == 422, bad

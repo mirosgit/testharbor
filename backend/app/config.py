@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     seed_demo: bool = True
     # Set to true when serving over HTTPS so the session cookie gets the Secure flag.
     secure_cookies: bool = False
+    # Runs' HTML reports uploaded by agents (a volume in docker-compose.yml).
+    reports_dir: str = "/data/reports"
+    max_report_mb: int = 500
 
 
 @lru_cache

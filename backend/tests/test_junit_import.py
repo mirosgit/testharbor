@@ -396,3 +396,46 @@ async def test_import_playwright_json_with_report_links(client: AsyncClient, pro
                             files=[("file", ("results.json", load("playwright.json"), "application/json"))],
                             params={"report_url": "file:///etc/passwd"})
     assert bad.status_code == 422
+
+
+async def test_config_property_labels_results_per_role(client: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]
+    """One scenario run as several roles (one JUnit file per role) -> one case, a result per role."""
+    p, s, sec = await make.tree()
+    case = await make.case(sec["id"], "Discount code is added")
+
+    def report(role: str, failed: bool) -> bytes:
+        body = '<failure message="no toast">trace</failure>' if failed else ""
+        return (
+            f'<testsuites><testsuite name="pytest"><testcase classname="{role}.tests.test_checkout" '
+            f'name="test_discount_code_is_added" time="1.5"><properties>'
+            f'<property name="case_id" value="{case["key"]}"/>'
+            f'<property name="config" value="{role.replace("_", " ").title()}"/>'
+            f"</properties>{body}</testcase></testsuite></testsuites>"
+        ).encode()
+
+    files = [("file", (f"{r}.xml", report(r, r == "admin"), "application/xml")) for r in ("super_admin", "admin")]
+    r = await client.post(f"/api/projects/{p['id']}/runs/import-junit", files=files)
+    assert r.status_code == 200, r.text
+    run_id = r.json()["run_id"]
+    assert await _statuses(client, run_id) == {case["key"]: "failed"}
+    hist = (await client.get(f"/api/runs/{run_id}/cases/{case['key']}/results")).json()
+    assert [(h["status"], h["config"]) for h in hist] == [("failed", "Admin"), ("passed", "Super Admin")]
+    listed = (await client.get(f"/api/runs/{run_id}/cases")).json()
+    assert listed[0]["last_result"]["config"] == "Admin"
+
+
+
+def test_reruns_keep_the_last_attempt() -> None:
+    """pytest-rerunfailures writes the test again for every attempt; earlier ones look passed."""
+    xml = (b'<testsuites><testsuite name="pytest">'
+           b'<testcase classname="admin.tests.test_ct" name="test_alloc" time="77"/>'
+           b'<testcase classname="admin.tests.test_ct" name="test_alloc" time="29"><failure message="boom"/></testcase>'
+           b'<testcase classname="admin.tests.test_ct" name="test_flaky" time="5"/>'
+           b'<testcase classname="admin.tests.test_ct" name="test_flaky" time="4"/>'
+           b'<testcase classname="admin.tests.test_ct" name="test_once" time="1"/>'
+           b"</testsuite></testsuites>")
+    tests = parse_junit(xml)
+    assert [(t.name, t.status.value, t.time_s) for t in tests] == [
+        ("test_alloc", "failed", 29.0), ("test_flaky", "passed", 4.0), ("test_once", "passed", 1.0)]
+    assert tests[0].details and tests[0].details.startswith("Failed in all 2 attempts")
+    assert tests[1].message == "Flaky: passed on retry 1"

@@ -15,10 +15,10 @@ export default async function globalTeardown(config: FullConfig) {
     for (const t of tokens.filter((t) => t.name === "e2e" && !t.revoked_at)) {
       await api.delete(`/api/tokens/${t.id}`);
     }
-    // Users can't be deleted (history is kept); deactivate the ones the tests invited.
-    const users: { id: number; email: string; is_active: boolean }[] = await (await api.get("/api/users")).json();
-    for (const u of users.filter((u) => /^e2e-tester-[0-9a-z]+@example\.com$/.test(u.email) && u.is_active)) {
-      await api.patch(`/api/users/${u.id}`, { data: { is_active: false } });
+    // Delete the users the tests invited.
+    const users: { id: number; email: string }[] = await (await api.get("/api/users")).json();
+    for (const u of users.filter((u) => /^e2e-(tester|delete)-[0-9a-z]+@example\.com$/.test(u.email))) {
+      await api.delete(`/api/users/${u.id}`);
     }
   } finally {
     await api.dispose();

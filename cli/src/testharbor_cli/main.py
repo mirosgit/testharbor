@@ -4,6 +4,7 @@
     export TESTHARBOR_TOKEN=th_...
     testcli upload junit.xml --project 1 --run-name "Nightly #123" --branch main --commit abc123
     testcli agent --project 1 --command "npx playwright test" --report reports/results.json
+    testcli init && testcli agent           # settings from testharbor.toml
 """
 
 from __future__ import annotations
@@ -160,24 +161,150 @@ def _connection(args: argparse.Namespace) -> tuple[str, str, int] | int:
         return EXIT_USAGE
 
 
-def cmd_agent(args: argparse.Namespace) -> int:
-    from .agent import AgentConfig, run_agent
+def _fail(message: str) -> int:
+    print(f"error: {message}", file=sys.stderr)
+    return EXIT_USAGE
 
-    conn = _connection(args)
-    if isinstance(conn, int):
-        return conn
-    url, token, project = conn
-    cwd = Path(args.cwd).resolve()
-    if not cwd.is_dir():
-        print(f"error: --cwd {args.cwd} is not a directory", file=sys.stderr)
-        return EXIT_USAGE
+
+def cmd_repo_agent(args: argparse.Namespace) -> int:
+    """`testcli agent --repo URL`: a server agent running branches of a repository."""
+    import re
+    import socket
+
+    from .config import read_dotenv
+    from .repo import RepoAgent, display_url, run_repo_agent
+
+    dotenv = read_dotenv(Path.cwd())
+
+    def env(name: str) -> str:
+        return os.environ.get(name) or dotenv.get(name, "")
+
+    url = args.url or env("TESTHARBOR_URL")
+    token = args.token or env("TESTHARBOR_TOKEN")
+    project = args.project or env("TESTHARBOR_PROJECT")
+    repo = args.repo or env("TESTHARBOR_REPO")
+    missing = [n for n, v in (("TESTHARBOR_URL", url), ("TESTHARBOR_TOKEN", token), ("TESTHARBOR_PROJECT", project))
+               if not v]
+    if missing:
+        return _fail(f"missing {', '.join(missing)}")
+    if not project.isdigit():
+        return _fail(f"project must be a numeric project id, got {project!r}")
+    env_file = args.env_file or env("TESTHARBOR_TESTS_ENV")
+    if env_file and not Path(env_file).is_file():
+        return _fail(f"--env-file {env_file} not found (the tests' .env with their passwords)")
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", display_url(repo)).strip("-") or "repo"
+    workdir = Path(args.workdir or env("TESTHARBOR_WORKDIR") or Path.home() / ".cache" / "testharbor" / slug)
+    if "TESTHARBOR_GIT_TOKEN" not in os.environ and dotenv.get("TESTHARBOR_GIT_TOKEN"):
+        os.environ["TESTHARBOR_GIT_TOKEN"] = dotenv["TESTHARBOR_GIT_TOKEN"]  # read by git through GIT_ASKPASS
+    if "TESTHARBOR_GIT_USER" not in os.environ and dotenv.get("TESTHARBOR_GIT_USER"):
+        os.environ["TESTHARBOR_GIT_USER"] = dotenv["TESTHARBOR_GIT_USER"]
+    return run_repo_agent(RepoAgent(
+        url=url, token=token, project=int(project), repo=repo, workdir=workdir,
+        name=args.name or env("TESTHARBOR_AGENT_NAME") or f"{socket.gethostname()} (server)",
+        env_file=Path(env_file) if env_file else None,
+        secret_files=Path(sf) if (sf := args.secret_files or env("TESTHARBOR_SECRET_FILES")) else None,
+        branch=args.branch or env("TESTHARBOR_BRANCH"),
+        subdir=args.repo_path or env("TESTHARBOR_REPO_PATH"), poll=args.poll or 3.0, once=args.once,
+    ))
+
+
+def cmd_agent(args: argparse.Namespace) -> int:
+    from .agent import AgentConfig, load_options, run_agent
+    from .config import find_config, load_config, read_dotenv
+
+    if args.repo or os.environ.get("TESTHARBOR_REPO"):
+        return cmd_repo_agent(args)
+    start = Path(args.cwd or ".").resolve()
+    if not start.is_dir():
+        return _fail(f"--cwd {args.cwd} is not a directory")
+    try:
+        path = Path(args.config).resolve() if args.config else find_config(start)
+        conf = load_config(path) if path else {}
+    except (OSError, CliError) as e:
+        return _fail(str(e))
+    root = path.parent if path else start
+    cwd = Path(args.cwd).resolve() if args.cwd else root
+    dotenv = read_dotenv(root)
+
+    def setting(flag: object, key: str, env: str = "", default: object = None) -> object:
+        """A flag wins, then the environment, then testharbor.toml, then .env, then the default."""
+        for value in (flag, os.environ.get(env) if env else None, conf.get(key), dotenv.get(env) if env else None):
+            if value not in (None, ""):
+                return value
+        return default
+
+    url = str(setting(args.url, "url", "TESTHARBOR_URL", ""))
+    token = args.token or os.environ.get("TESTHARBOR_TOKEN") or dotenv.get("TESTHARBOR_TOKEN", "")
+    project = setting(args.project, "project", "TESTHARBOR_PROJECT", "")
+    missing = [n for n, v in (("url (TESTHARBOR_URL, --url or testharbor.toml)", url),
+                              ("TESTHARBOR_TOKEN (environment or .env)", token),
+                              ("project (TESTHARBOR_PROJECT, --project or testharbor.toml)", project)) if not v]
+    if missing:
+        hint = "" if path else " — or run `testcli init` to write a testharbor.toml"
+        return _fail(f"missing {', '.join(missing)}{hint}")
+    try:
+        project_id = int(str(project))
+    except ValueError:
+        return _fail(f"project must be a numeric project id, got {project!r}")
+
+    legacy_grep = args.grep_arg if args.grep_arg is not None else "--grep"
+    select = str(setting(args.select, "select", default=""))
+    if not select and args.grep_arg is not None and not args.grep_arg:
+        select = "none"  # --grep-arg "": append nothing
+    options_file = setting(args.options, "options")
+    try:
+        options = load_options(cwd / str(options_file)) if options_file and not conf.get("prepare") else []
+    except CliError as e:
+        return _fail(str(e))
+    catalog = setting(args.catalog, "catalog")
     cfg = AgentConfig(
-        url=url, token=token, project=project, command=args.command, report=Path(args.report), cwd=cwd,
-        report_url=args.report_url or os.environ.get("TESTHARBOR_REPORT_URL", ""),
-        auto_create=args.auto_create, grep_arg=args.grep_arg, poll=args.poll, once=args.once,
-        **({"name": args.name} if args.name else {}),
+        url=url, token=token, project=project_id,
+        command=str(setting(args.command, "command", default="npx playwright test")),
+        report=Path(str(setting(args.report, "report", default="reports/results.json"))), cwd=cwd,
+        options=options, options_file=Path(str(options_file)) if options_file else None,
+        catalog=str(catalog) if catalog else None,
+        framework=str(conf.get("framework", "custom")), select=select, prepare=str(conf.get("prepare", "")),
+        extra_env=dict(conf.get("env", {})),
+        report_url=str(setting(args.report_url, "report_url", "TESTHARBOR_REPORT_URL", "")),
+        report_html=str(conf.get("report_html", "")),
+        auto_create=bool(args.auto_create or conf.get("auto_create")),
+        grep_arg=str(conf.get("grep_arg", legacy_grep)) if args.grep_arg is None else args.grep_arg,
+        poll=float(args.poll or conf.get("poll") or 3.0), once=args.once,
+        **({"name": str(args.name or conf["name"])} if args.name or conf.get("name") else {}),
     )
+    if path:
+        print(f"testcli: settings from {path}")
+    if conf.get("secrets") and not args.no_secrets:
+        from .config import run_secrets
+
+        try:
+            run_secrets(conf["secrets"], cwd)
+        except CliError as e:
+            # The agent still starts: tests that need these secrets fail, the others run.
+            print(f"testcli: WARNING: {e}; starting anyway", file=sys.stderr, flush=True)
     return run_agent(cfg)
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    from .config import CONFIG_NAMES, env_is_ignored, init_text
+
+    folder = Path(args.cwd or ".").resolve()
+    target = folder / CONFIG_NAMES[0]
+    if target.exists() and not args.force:
+        return _fail(f"{target} already exists (--force to overwrite)")
+    url = args.url or os.environ.get("TESTHARBOR_URL", "")
+    project = args.project or os.environ.get("TESTHARBOR_PROJECT")
+    text = init_text(folder, url, int(project) if project else None, args.framework)
+    target.write_text(text, encoding="utf-8")
+    print(f"Wrote {target}:\n")
+    print(text)
+    ignored = env_is_ignored(folder)
+    print("Next:")
+    print("  1. Put the API token (TestHarbor: API tokens) into .env next to it:  TESTHARBOR_TOKEN=th_...")
+    if ignored is False:
+        print("     ! .env is NOT ignored by git here: add `.env` to .gitignore before writing the token")
+    print("  2. Start the agent here:  testcli agent")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -214,24 +341,61 @@ def build_parser() -> argparse.ArgumentParser:
         description="Wait for jobs from TestHarbor, run the tests with --command, upload --report into the "
                     "job's run. The command is only ever taken from here, never from the server.")
     ag.add_argument("--project", "-p", help="project id (or TESTHARBOR_PROJECT)")
-    ag.add_argument("--command", "-c", default="npx playwright test",
-                    help='how to run the tests (default: "npx playwright test")')
-    ag.add_argument("--report", "-r", default="reports/results.json",
-                    help="report the command writes: Playwright JSON or JUnit XML (default: reports/results.json)")
-    ag.add_argument("--cwd", default=".", help="directory of the test project (default: current)")
+    ag.add_argument("--command", "-c", help='how to run the tests (default: testharbor.toml, else "npx playwright test")')
+    ag.add_argument("--report", "-r",
+                    help="report the command writes: Playwright JSON or JUnit XML (default: reports/results.json); "
+                         "may be a glob and contain {job_id}, e.g. 'reports/t{job_id}/*/junit.xml'")
+    ag.add_argument("--cwd", help="folder to run the tests in (default: the folder of testharbor.toml, else current)")
+    ag.add_argument("--config", help="settings file (default: testharbor.toml / .json here or in a parent folder)")
+    ag.add_argument("--select", choices=["grep", "args", "env", "none"],
+                    help="how selected tests reach the command: --grep regex, node id arguments, or only the "
+                         "TESTHARBOR_SELECTION file")
     ag.add_argument("--report-url",
                     help="where the HTML report is served, e.g. http://localhost:9323/index.html "
-                         "(or TESTHARBOR_REPORT_URL); cases link to their test in it")
+                         "(or TESTHARBOR_REPORT_URL; may contain {job_id}); cases link to their test in it")
     ag.add_argument("--auto-create", action="store_true",
                     help="create cases for tests that match nothing (in Unsorted › Automated)")
-    ag.add_argument("--grep-arg", default="--grep",
-                    help='option used to run only selected cases (default: --grep; "" to always run everything)')
+    ag.add_argument("--grep-arg",
+                    help='option used to run only selected cases (default: --grep; "" to append nothing, '
+                         'e.g. when the command reads TESTHARBOR_CASE_IDS itself)')
+    ag.add_argument("--options",
+                    help="JSON file of run options a person may set in TestHarbor (environment, roles, browser…); "
+                         "they reach the command as environment variables")
+    ag.add_argument("--catalog",
+                    help="JSON file listing the tests ({\"tests\": [{key, title, path, steps…}]}), sent when the "
+                         "agent starts; synced into cases in TestHarbor after a preview")
+    ag.add_argument("--no-secrets", action="store_true",
+                    help="don't run the `secrets` commands of testharbor.toml at start (they are still valid)")
     ag.add_argument("--name", help="agent name shown in TestHarbor (default: host name)")
-    ag.add_argument("--poll", type=float, default=3.0, help="seconds between checks for new jobs")
+    ag.add_argument("--poll", type=float, help="seconds between checks for new jobs (default 3)")
     ag.add_argument("--once", action="store_true", help="exit after one job")
     ag.add_argument("--url", help="TestHarbor base URL (or TESTHARBOR_URL)")
     ag.add_argument("--token", help="API token (or TESTHARBOR_TOKEN; prefer the env var)")
+    srv = ag.add_argument_group(
+        "server mode", "Run branches of a git repository in clean checkouts instead of a folder "
+                       "(credentials: TESTHARBOR_GIT_TOKEN / TESTHARBOR_GIT_USER, or the machine's SSH key)")
+    srv.add_argument("--repo", help="git URL of the tests (or TESTHARBOR_REPO), e.g. "
+                                    "https://bitbucket.org/team/qa-tests.git")
+    srv.add_argument("--branch", help="default branch (or TESTHARBOR_BRANCH; default: the repository's)")
+    srv.add_argument("--repo-path", help="folder of testharbor.toml in the repository (or TESTHARBOR_REPO_PATH; "
+                                         "default: found)")
+    srv.add_argument("--env-file", help="the tests' .env (passwords), copied into every checkout "
+                                        "(or TESTHARBOR_TESTS_ENV)")
+    srv.add_argument("--secret-files", help="a folder copied into every checkout as is, e.g. with "
+                                            "config/credentials.ini (or TESTHARBOR_SECRET_FILES)")
+    srv.add_argument("--workdir", help="where the clone and checkouts live (or TESTHARBOR_WORKDIR; "
+                                       "default ~/.cache/testharbor/<repo>)")
     ag.set_defaults(func=cmd_agent)
+
+    ini = sub.add_parser("init", help="write a testharbor.toml for the tests in this folder",
+                         description="Detect Playwright or pytest and write testharbor.toml, so `testcli agent` "
+                                     "needs no flags.")
+    ini.add_argument("--project", "-p", help="TestHarbor project id (or TESTHARBOR_PROJECT)")
+    ini.add_argument("--url", help="TestHarbor address (or TESTHARBOR_URL)")
+    ini.add_argument("--framework", choices=["playwright", "pytest", "custom"], help="default: detected")
+    ini.add_argument("--cwd", help="the tests' folder (default: current)")
+    ini.add_argument("--force", action="store_true", help="overwrite an existing testharbor.toml")
+    ini.set_defaults(func=cmd_init)
     return parser
 
 

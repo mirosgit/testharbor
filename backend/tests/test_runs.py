@@ -176,3 +176,22 @@ async def test_delete_run(client: AsyncClient, data) -> None:  # type: ignore[no
     assert (await client.get(f"/api/runs/{run['id']}")).status_code == 404
     # Cases survive.
     assert (await client.get(f"/api/cases/{data['c']['auth']['id']}")).status_code == 200
+
+
+async def test_only_admins_delete_runs(client: AsyncClient, tester: AsyncClient, make) -> None:  # type: ignore[no-untyped-def]
+    p, s, sec = await make.tree()
+    other, _, _ = await make.tree()
+    runs = [(await client.post(f"/api/projects/{p['id']}/runs", json={"name": f"R{i}", "suite_id": s["id"]})).json()
+            for i in range(3)]
+    foreign = (await client.post(f"/api/projects/{other['id']}/runs", json={"name": "X"})).json()
+    assert (await tester.delete(f"/api/runs/{runs[0]['id']}")).status_code == 403
+    assert (await tester.post(f"/api/projects/{p['id']}/runs/delete", json={"ids": [runs[0]["id"]]})).status_code == 403
+
+    # Several at once; a run of another project is left alone.
+    r = await client.post(f"/api/projects/{p['id']}/runs/delete",
+                          json={"ids": [runs[0]["id"], runs[1]["id"], foreign["id"]]})
+    assert r.json() == {"deleted": 2}
+    left = [x["id"] for x in (await client.get(f"/api/projects/{p['id']}/runs")).json()["items"]]
+    assert left == [runs[2]["id"]]
+    assert (await client.get(f"/api/runs/{foreign['id']}")).status_code == 200
+    assert (await client.delete(f"/api/runs/{runs[2]['id']}")).status_code == 204

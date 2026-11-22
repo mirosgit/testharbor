@@ -218,6 +218,40 @@ single final job with `testcli upload 'reports/**/*.xml'`, so they end up in one
 ## Run autotests from TestHarbor
 
 Start tests with a button in TestHarbor. They run on your own machine or server, where the tests live.
+The quickest way: open **Autotests › Connect autotests** in your project, or:
+
+```sh
+uv tool install "git+https://github.com/mirosgit/testharbor.git#subdirectory=cli"
+cd your-tests
+testcli init --project 1 --url https://testharbor.example.com   # writes testharbor.toml (Playwright / pytest detected)
+echo "TESTHARBOR_TOKEN=th_..." >> .env                           # keep .env out of git
+testcli agent
+```
+
+`testharbor.toml` holds `url`, `project`, `framework` (`playwright`, `pytest` or `custom`), and optionally
+`command`, `report`, `select` (`grep`, `args`, `env` or `none`), `catalog` (`auto`, a JSON file, or none), `options`,
+`prepare` (a command run before options and catalog are read, at start and after every run), `env`, `name` and
+`poll`.
+
+Flags beat the environment, the environment beats the file, and the file beats the `TESTHARBOR_*` lines of `.env`.
+The token never goes into the file. With `framework = "playwright"` or `"pytest"` the agent lists the tests itself
+and runs selected ones with `--grep` of their titles, or with their node ids.
+
+**Selected tests and safety.** Automation keys are edited in TestHarbor, so the agent never treats them as
+options: with `select = "args"` it only passes keys of tests it listed itself (no leading `-`, no absolute paths, no
+`..`); with `select = "env"` your runner gets them in `TESTHARBOR_SELECTION` and must only run tests it knows.
+
+**Links to the HTML report.** Set `report_html` to the report page the command writes (the Playwright preset uses
+`reports/html/{job_id}/index.html`). After the tests the agent uploads that page's folder into the run
+(`PUT /api/runs/{id}/report`, a zip), TestHarbor keeps it, the run links to it and each result to its test in it. For
+JUnit reports, a `pw_test_id` property with the report's test id makes the per-test link. Reports open at
+`/r/<signed link>/…`, sandboxed: they can't reach TestHarbor's session or API (so a trace viewer that needs a service
+worker doesn't run there; traces can be downloaded).
+
+To run a git branch on a server instead (picked when starting a run, latest commit pulled), see
+[runner.md](runner.md).
+
+The steps below describe the same agent configured with flags.
 
 1. On that machine, start the agent in the folder of the test project. Playwright must write a JSON report
    (see above):
@@ -249,6 +283,131 @@ that runs is always the one given on the agent's command line. A job whose agent
 for 2 minutes is marked as failed. Options: `--name` (shown in TestHarbor; defaults to the host name),
 `--auto-create`, `--grep-arg` (`""` always runs everything), `--poll`, `--once`.
 
-API: `POST /api/projects/{id}/automation/jobs` (`{case_ids, run_id, only_failed}`), `GET …/automation/jobs`,
+### Run options
+
+An agent can let people choose how a run goes: an environment, roles, a suite, a browser. Describe the choices in
+a JSON file and start the agent with `--options FILE`. Each option is an environment variable of the
+command:
+
+```json
+{"options": [
+  {"name": "ENV", "label": "Environment", "type": "choice", "choices": ["dev", "qa"], "default": "dev"},
+  {"name": "ROLES", "label": "Roles", "type": "multi", "hint": "None = every role",
+   "choices": [{"value": "admin", "label": "Admin"}, {"value": "editor", "label": "Editor"}]},
+  {"name": "HEADED", "label": "Show the browser", "type": "bool"}
+]}
+```
+
+- `choice` takes one of `choices`. `multi` takes any of them, and the agent passes them space-separated.
+  `bool` is passed as `1` or `0`.
+- A choice is a string or `{"value", "label"}`. `default` is optional.
+- The **Run autotests** dialog shows these options and remembers the last choice.
+- The agent checks every value against its own file and sets every offered variable, using the default
+  when the job doesn't set one. TestHarbor can only pick among the values the agent offers. A job asking
+  for anything else fails without running.
+- Names must be UPPER_CASE environment variable names. Variables that change how programs start (`PATH`,
+  `LD_*`, `PYTHON*`, `BASH_ENV`, …) and `TESTHARBOR_*` are refused.
+
+The command always gets `TESTHARBOR_JOB_ID`, `TESTHARBOR_RUN_ID` and `TESTHARBOR_CASE_IDS` (comma-separated
+ids). It never gets `TESTHARBOR_TOKEN`. A command that selects tests by case id itself runs with
+`--grep-arg ""`, so nothing is appended.
+
+### Several reports per job
+
+`--report` may be a glob, and both `--report` and `--report-url` may contain `{job_id}`. All matching files
+written during the job are uploaded into its run, for example one JUnit file per parallel process:
+
+```sh
+testcli agent --project 1 --command ./scripts/ci_run.sh --grep-arg "" --options testharbor-options.json \
+  --report 'reports/t{job_id}/*/junit.xml' --report-url 'http://localhost:9323/t{job_id}/index.html'
+```
+
+### Catalog of tests: cases for your autotests, and running single tests
+
+Start the agent with `--catalog FILE` to tell TestHarbor which tests exist. It is sent when the agent starts and
+changes nothing by itself:
+
+```json
+{"tests": [{
+  "key": "tests/test_checkout.py::test_a_discount_code_is_applied",
+  "title": "A discount code is applied to an order",
+  "path": ["Checkout", "Discount codes"],
+  "description": "…", "preconditions": "- Given an order exists",
+  "steps": [{"action": "When I apply a discount code", "expected": "Then the total is reduced"}],
+  "roles": ["Admin", "Customer"], "tags": ["regression"], "case_ids": []
+}]}
+```
+
+`key` must be what your reports carry as `automation_key` for that test.
+
+On the **Test cases** page, **Autotests: N to sync › Review** shows a preview:
+
+- **New tests** become cases in the **Autotests** suite, in sections from `path`, with the description,
+  preconditions, steps, roles and tags filled in. They start as **Pending review**: the text comes from the
+  code, so a person reads it and sets the case Active. If a manual case with a similar title exists, it is
+  suggested. Link the test to it instead of creating a duplicate, or link it to any case by ID, or skip it for now.
+- **Linked tests** (tagged with `case_ids`, or linked earlier) only set the automation key and status of their
+  case. The case's content stays as written.
+- **Changed tests** update the cases created from the catalog: title, description, preconditions, steps, roles
+  and tags, and put them back to **Pending review**. A changed key alone keeps the state. Priority, owner,
+  sprint, custom fields and the section are yours to change.
+- **Removed tests** mark their catalog cases Outdated. Nothing is deleted.
+
+The preview has a tab per kind (New, Link, Changed, Removed), a filter, and the tests grouped by section.
+Each new test has a menu: create a new case, skip it, link it to a suggested case, or search any manual case
+by title or ID. For many tests at once, tick them (a whole section, or everything the filter shows) and use
+the bar that appears: **New cases**, **Link to most alike** (each to its most similar case), **Skip**, or
+**Apply** for linked and changed tests. Skipped tests stay to be synced later.
+
+#### Descriptions from your code
+
+With `catalog = "auto"` the agent fills each case from what the test's code already says. Nothing is
+invented: a test with no description gets one that points to its source file and line.
+
+| Where | What it fills |
+|---|---|
+| pytest: the test's docstring | The first short line is the title, the rest is read as below |
+| Playwright: the `/** … */` or `//` comment right above `test(…)` | Read as below |
+| Playwright: `test.step('…')` titles | Steps, in order. `'Apply the code -> The total drops'` splits into action and expected; a `// Expected: …` comment inside a step is its expected result; nested steps become sub-items |
+| Playwright: annotations `description`, `precondition`, `expected`, `issue` | The matching field (`issue` is listed in the description) |
+| pytest-bdd scenarios | Feature and scenario descriptions, Examples as a table; `Given` lines are the preconditions, each `When` starts a step, `Then` lines are its expected result; the feature's folders and name are the section path |
+| Markers / tags | Tags; `@pytest.mark.case("C142")`, `C142`, `@C142` or `case:C142` link the test to a case |
+
+A docstring or comment is read like this (the section headers are optional, unindented and end with `:`):
+
+```python
+def test_discount():
+    """Applies a discount code at checkout.
+
+    Only active codes count.
+
+    Preconditions:
+    - A cart with one product
+    Steps:
+    1. Open the cart -> The total is shown
+    2. Enter SAVE10 and apply it
+       Expected: the total drops by 10%
+    Expected result:
+    The order total includes the discount.
+    """
+```
+
+`Given` / `When` / `Then` lines in a docstring or comment work too. The pytest details come from a small
+plugin the agent loads during `pytest --collect-only` (it is copied to a temp folder and found through
+`PYTHONPATH`, so testcli needn't be installed in the tests' environment). If the command doesn't pass
+`PYTHONPATH` on, only names and folders are listed.
+
+After the sync, open the **Autotests** tab, tick tests in the tree (or select cases on the Test cases page) and
+press **Run selected**. The agent passes their ids and automation keys to the
+command in the JSON file named by `TESTHARBOR_SELECTION`: `{"case_ids": [...], "automation_keys": [...]}`.
+
+### Results per configuration
+
+When the same test runs in several configurations (roles, browsers, Playwright projects), give each result a
+`config` JUnit property, for example `<property name="config" value="Admin"/>`. For a Playwright JSON
+report with several projects, the project is used. The case keeps one result per configuration, each
+labelled with its configuration, and its status in the run is the worst of them.
+
+API: `POST /api/projects/{id}/automation/jobs` (`{case_ids, run_id, only_failed, params}`), `GET …/automation/jobs`,
 `POST /api/automation/jobs/{id}/cancel`. Agents use `…/automation/claim`, `…/progress` and `…/finish`.
 

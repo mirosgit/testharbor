@@ -258,6 +258,8 @@ class TestCase(Base):
     )
     # Display name of whoever last changed the case (or the value from an imported file).
     updated_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Created from the automated tests' catalog: title, steps, roles… follow the test on every sync.
+    catalog_managed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     # Free-form extra fields, in display order: [{"name": "Sprint", "value": "Sprint 125"}, ...]
     custom_fields: Mapped[list[dict[str, str]]] = mapped_column(
         JSONB, default=list, server_default=text("'[]'::jsonb")
@@ -336,6 +338,8 @@ class TestResult(Base):
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Link to this result's details: absolute URL, or "#…" relative to the run's report_url.
     report_link: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    # The configuration the test ran in: a role, a browser, a Playwright project ("Super Admin").
+    config: Mapped[str | None] = mapped_column(String(200), nullable=True)
     user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -363,7 +367,14 @@ class AutomationJob(Base):
         _enum(JobStatus, "job_status"), default=JobStatus.queued, server_default=JobStatus.queued.value
     )
     case_ids: Mapped[list[int]] = mapped_column(ARRAY(Integer), default=list, server_default=text("'{}'::int[]"))
+    # Run options picked from the ones the agent offers ({"ENV": "qa", "ROLES": ["admin"], "HEADED": false});
+    # the agent checks them against its own list and passes them to its command as environment variables.
+    params: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     requested_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Only this agent may take the job (None: any agent of the project).
+    target_agent: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # The git branch a server agent checks out for the job (None: its default; local agents run their folder).
+    branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
     agent: Mapped[str | None] = mapped_column(String(200), nullable=True)
     exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)  # why it failed, or a summary
@@ -391,6 +402,26 @@ class AutomationAgent(Base):
     name: Mapped[str] = mapped_column(String(200))
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     last_seen_at: Mapped[datetime] = _now()
+    # Where it runs tests from ({"mode": "local", "folder", "branch", "commit", "dirty", "framework"}).
+    info: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    # The run options the agent offers (its --options file), shown in the "Run autotests" dialog.
+    options: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
+
+
+class AutomationCatalog(Base):
+    """The automated tests an agent last reported for a project (`testcli agent --catalog`).
+    A person syncs them into cases after a preview (app/catalog.py)."""
+
+    __tablename__ = "automation_catalogs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), unique=True)
+    agent: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    uploaded_at: Mapped[datetime] = _now()
+    # [{"key", "title", "path", "description", "preconditions", "steps", "roles", "tags", "case_ids"}]
+    tests: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
 
 
 class ApiToken(Base):

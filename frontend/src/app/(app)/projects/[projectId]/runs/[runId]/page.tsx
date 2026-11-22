@@ -28,6 +28,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api";
+import { useIsAdmin } from "@/lib/me";
 import { statusBg, statusLabel } from "@/lib/labels";
 import type { ResultStatus, RunCase } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -79,6 +80,7 @@ function RunView() {
   const [sort, setSort] = useState<SortState<RunCaseSort>>({ sort: "manual", order: "asc" });
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [dialog, setDialog] = useState<"edit" | "delete" | "report" | "autotests" | null>(null);
+  const isAdmin = useIsAdmin();
 
   const openCaseId = search.get("case") ? Number(search.get("case")) : null;
   const setOpenCase = (id: number | null) => {
@@ -231,10 +233,14 @@ function RunView() {
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onSelect={() => setDialog("edit")}>Edit</DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => setDialog("report")}>Report link…</DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" onSelect={() => setDialog("delete")}>
-                    <Trash2 /> Delete run
-                  </DropdownMenuItem>
+                  {isAdmin && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem variant="destructive" onSelect={() => setDialog("delete")}>
+                        <Trash2 /> Delete run
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

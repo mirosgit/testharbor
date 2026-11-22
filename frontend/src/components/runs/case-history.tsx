@@ -15,7 +15,7 @@ export function CaseHistory({ caseId, projectId }: { caseId: number; projectId: 
     queryFn: () => api.caseHistory(caseId),
   });
   return (
-    <section data-testid="case-history">
+    <section className="min-w-0" data-testid="case-history">
       <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Run history</h3>
       {isLoading ? (
         <Skeleton className="h-16" />
@@ -34,7 +34,12 @@ export function CaseHistory({ caseId, projectId }: { caseId: number; projectId: 
                   {h.run_name}
                 </Link>
                 {h.last_result?.error_message && (
-                  <p className="truncate font-mono text-xs text-status-failed">{h.last_result.error_message}</p>
+                  <p
+                    className="line-clamp-2 font-mono text-xs text-status-failed [overflow-wrap:anywhere]"
+                    title={h.last_result.error_message}
+                  >
+                    {h.last_result.error_message}
+                  </p>
                 )}
                 {h.last_result?.comment && !h.last_result.error_message && (
                   <p className="truncate text-xs text-muted-foreground">{h.last_result.comment}</p>

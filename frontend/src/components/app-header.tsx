@@ -31,25 +31,27 @@ export function AppHeader() {
 
   const tabs = projectId
     ? [
+        { href: `/projects/${projectId}/dashboard`, label: "Dashboard" },
         { href: `/projects/${projectId}/cases`, label: "Test cases" },
         { href: `/projects/${projectId}/runs`, label: "Test runs" },
+        { href: `/projects/${projectId}/autotests`, label: "Autotests" },
         { href: `/projects/${projectId}/settings`, label: "Settings" },
       ]
     : [];
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-background px-4">
-      <Link href="/" className="mr-2 flex items-center gap-1.5 font-semibold">
+      <Link href="/" className="mr-2 flex shrink-0 items-center gap-1.5 font-semibold" aria-label="TestHarbor">
         <Anchor className="size-5 text-primary" />
-        TestHarbor
+        <span className={cn(projectId && "hidden md:inline")}>TestHarbor</span>
       </Link>
       {projectId && (
         <>
-          <span className="text-muted-foreground">/</span>
+          <span className="hidden text-muted-foreground md:inline">/</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="gap-1 font-medium">
-                {project?.name ?? "…"}
+              <Button variant="ghost" size="sm" className="min-w-0 shrink gap-1 font-medium">
+                <span className="max-w-24 truncate sm:max-w-48">{project?.name ?? "…"}</span>
                 <ChevronsUpDown className="size-3.5 text-muted-foreground" />
               </Button>
             </DropdownMenuTrigger>
@@ -63,13 +65,13 @@ export function AppHeader() {
               <DropdownMenuItem onSelect={() => router.push("/")}>All projects</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <nav className="ml-2 flex items-center gap-1">
+          <nav className="ml-1 flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] md:ml-2">
             {tabs.map((t) => (
               <Link
                 key={t.href}
                 href={t.href}
                 className={cn(
-                  "rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground",
+                  "rounded-md px-2 py-1.5 text-sm whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground sm:px-3",
                   pathname.startsWith(t.href) && "bg-muted font-medium text-foreground",
                 )}
               >
@@ -79,7 +81,7 @@ export function AppHeader() {
           </nav>
         </>
       )}
-      <div className="ml-auto flex items-center gap-1">
+      <div className="ml-auto flex shrink-0 items-center gap-1">
         <ThemeToggle />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
