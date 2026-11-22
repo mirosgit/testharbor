@@ -22,6 +22,7 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import { Suspense, useMemo, useState, type ReactNode } from "react";
 
 import { CatalogSyncDialog, useCatalog } from "@/components/cases/catalog-sync";
+import { runnable } from "@/components/runs/test-picker";
 import {
   fmt,
   Legend,
@@ -432,6 +433,9 @@ function AutotestsTile({ d, projectId }: { d: Dashboard; projectId: number }) {
   const qc = useQueryClient();
   const a = d.automation;
   const toSync = catalog ? catalog.counts.create + catalog.counts.update + catalog.counts.link + catalog.counts.outdated : 0;
+  // Tests the agent reports now (not the outdated cases of removed tests), and those that have a case.
+  const tests = catalog?.items.filter((i) => i.action !== "outdated") ?? [];
+  const linked = tests.filter(runnable).length;
   const online = a.agents_online > 0;
   return (
     <Tile
@@ -451,8 +455,8 @@ function AutotestsTile({ d, projectId }: { d: Dashboard; projectId: number }) {
         </span>
       }
     >
-      <Big sub={catalog ? `of ${fmt(catalog.items.length)} tests in the catalog` : "cases follow a test"}>
-        {fmt(a.catalog_managed)}
+      <Big sub={catalog ? `of ${fmt(tests.length)} tests have a case` : "cases follow a test"}>
+        {fmt(catalog ? linked : a.catalog_managed)}
       </Big>
       <div className="mt-2 text-xs">
         {!catalog ? (
