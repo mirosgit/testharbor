@@ -10,6 +10,7 @@ import argparse
 import asyncio
 import random
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import (
+    AutomationComplexity,
+    AutomationProgress,
     AutomationStatus,
+    CaseState,
     CaseType,
     Priority,
     Project,
@@ -162,12 +166,41 @@ FAILURES = [
      'File "tests/web/test_cart.py", line 77, in test_change_quantity\n    assert subtotal == expected'),
 ]
 
+# A few cases that are not plain Active, so the dashboard and filters have something to show.
+EXTRA: dict[str, dict[str, Any]] = {
+    "Account locks after 5 failed attempts": {
+        "state": CaseState.pending_review, "automation_progress": AutomationProgress.in_progress,
+        "automation_complexity": AutomationComplexity.medium},
+    "Reset link expires after 1 hour": {"state": CaseState.pending_review},
+    "Cart persists for a logged-in user across devices": {"state": CaseState.pending_review},
+    "Order total uses server-side prices": {"state": CaseState.draft},
+    "Rate limit returns 429": {"state": CaseState.draft},
+    "Password strength meter": {"state": CaseState.outdated},
+    "Remember me keeps the session after browser restart": {
+        "automation_progress": AutomationProgress.cannot_be_automated},
+}
+# Nightly failure chance per test; the rest fail rarely. "Create order" broke for a few days.
+FLAKY = {"Change quantity in cart": 0.45, "Login fails with wrong password": 0.3}
+BROKEN = [("Create order", 3, 6), ("Pay with a valid card", 31, 37)]  # title, failing from N to M days ago
+OWNERS = ["Ana", "Ben", "Chen"]
+PROGRESS = {A: AutomationProgress.automated, T: AutomationProgress.not_automated}
+
+
+def _failure(c: TestCase, rnd: random.Random) -> tuple[str, str]:
+    key = c.automation_key or ""
+    for i, part in enumerate(("test_orders", "test_auth", "test_cart")):
+        if part in key:
+            return FAILURES[i]
+    return rnd.choice(FAILURES)
+
 
 async def seed(session: AsyncSession) -> Project:
     rnd = random.Random(42)
+    now = datetime.now(UTC)
     project = Project(
         name="Demo Shop",
         description="Sample e-commerce project with web and API suites. Feel free to delete it.",
+        roles=["Admin", "Customer", "Guest"],
     )
     session.add(project)
     await session.flush()
@@ -198,14 +231,27 @@ async def seed(session: AsyncSession) -> Project:
                     steps=[{"action": a, "expected": e} for a, e in steps],
                     expected_result=steps[-1][1], priority=prio, type=ctype, tags=tags,
                     automation_status=auto, automation_key=key, position=pos,
+                    owner=OWNERS[len(cases) % len(OWNERS)], updated_by=OWNERS[len(cases) % len(OWNERS)],
+                    sprint="Sprint 15" if len(cases) % 4 == 0 else "Sprint 14",
+                    roles=["Customer"] if suite_name == "Web App" else ["Admin"],
+                    created_at=now - timedelta(days=60),
+                    updated_at=now - timedelta(days=len(cases) * 7 % 20 + 1, hours=len(cases) % 9),
+                    **({"automation_progress": PROGRESS.get(auto)} | EXTRA.get(title, {})),
                 )
                 session.add(c)
                 cases.append(c)
     await session.flush()
 
-    now = datetime.now(UTC)
     automated = [c for c in cases if c.automation_status == AutomationStatus.automated]
+    # Six weeks of nightly CI runs before the two named ones below.
+    nightlies = [
+        (f"Nightly #{213 - k}", RunSource.ci, automated, now - timedelta(days=k, hours=2), True, 1.0,
+         {"branch": "main", "commit": f"{rnd.getrandbits(28):07x}",
+          "build_url": f"https://ci.example.com/builds/{213 - k}"})
+        for k in range(42, 1, -1)
+    ]
     runs_spec = [
+        *nightlies,
         ("Regression — release 1.4", RunSource.manual, cases, now - timedelta(days=9), True, 1.0, {}),
         ("Nightly #212", RunSource.ci, automated, now - timedelta(days=1, hours=2), True, 1.0,
          {"branch": "main", "commit": "9f3c2ab", "build_url": "https://ci.example.com/builds/212"}),
@@ -225,15 +271,19 @@ async def seed(session: AsyncSession) -> Project:
             if i < len(run_cases) * done_ratio:
                 roll = rnd.random()
                 if source == RunSource.ci:
-                    status = (ResultStatus.failed if roll < 0.12 else
-                              ResultStatus.skipped if roll < 0.17 else ResultStatus.passed)
+                    age = (now - created).days
+                    fail = FLAKY.get(c.title, 0.03 if age < 30 else 0.07)
+                    if any(c.title == t and lo <= age <= hi for t, lo, hi in BROKEN):
+                        fail = 1.0
+                    status = (ResultStatus.failed if roll < fail else
+                              ResultStatus.skipped if roll < fail + 0.03 else ResultStatus.passed)
                 else:
                     status = (ResultStatus.failed if roll < 0.1 else ResultStatus.blocked if roll < 0.16
                               else ResultStatus.retest if roll < 0.2 else ResultStatus.passed)
             session.add(RunCase(run_id=run.id, case_id=c.id, status=status))
             if status == ResultStatus.untested:
                 continue
-            err = rnd.choice(FAILURES) if status == ResultStatus.failed else (None, None)
+            err = _failure(c, rnd) if status == ResultStatus.failed else (None, None)
             if status == ResultStatus.failed and source == RunSource.manual:
                 err = ("Actual result differs from expected — see comment.", None)
             session.add(TestResult(

@@ -411,7 +411,7 @@ function Delta({ value, days }: { value: number | null; days: number }) {
     <p className="mt-1 flex items-center gap-1 text-xs">
       <span
         className={cn(
-          "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-medium",
+          "inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-full px-1.5 py-0.5 font-medium",
           flat
             ? "bg-muted text-muted-foreground"
             : value > 0

@@ -4,11 +4,14 @@ TestHarbor is a lightweight, self-hosted, open-source alternative to TestRail. I
 test cases and test runs, and it integrates directly with automated tests. You can upload JUnit XML
 from any framework, link tests to cases with `C123` IDs, and see manual and CI results side by side.
 
-![Test cases](docs/screenshots/cases.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dashboard-dark.png"><img src="docs/screenshots/dashboard.png" alt="Project dashboard: coverage, review queue, pass rate, failing and flaky cases"></picture>
 
-| Test runs | A CI run with a failure |
-|---|---|
-| ![Runs](docs/screenshots/runs.png) | ![Run](docs/screenshots/run.png) |
+<table>
+  <tr><th>Test cases</th><th>Autotests</th></tr>
+  <tr><td><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/cases-dark.png"><img src="docs/screenshots/cases.png" alt="Test cases"></picture></td><td><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/autotests-dark.png"><img src="docs/screenshots/autotests.png" alt="Autotests: pick tests and run them through an agent"></picture></td></tr>
+  <tr><th>Test runs</th><th>A CI run with a failure</th></tr>
+  <tr><td><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/runs-dark.png"><img src="docs/screenshots/runs.png" alt="Test runs"></picture></td><td><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/run-dark.png"><img src="docs/screenshots/run.png" alt="A CI run with a failure"></picture></td></tr>
+</table>
 
 ## Features
 
@@ -91,8 +94,8 @@ Create your admin account (the command asks for an email, name and password):
 docker compose exec backend python -m app.manage create-admin
 ```
 
-Open **http://localhost:3000** and sign in. A demo project with about 30 cases and a few runs is
-created on first start. Invite your testers from **Settings › Users**.
+Open **http://localhost:3000** and sign in. A demo project with about 30 cases and six weeks of runs is
+created on first start, so the dashboard has something to show. Invite your testers from **Settings › Users**.
 
 **On a server for your team**, follow **[docs/deployment.md](docs/deployment.md)**. It covers HTTPS
 on your domain, the security checklist, backups and updates.
