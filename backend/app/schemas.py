@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import date as Day, datetime
 
 from typing import Annotated, Literal
 
@@ -874,3 +874,113 @@ class AgentOut(BaseModel):
     options: list[AgentOption] = []
     info: AgentInfo = Field(default_factory=lambda: AgentInfo())
 
+
+
+# --- Dashboard ---------------------------------------------------------------------------
+
+
+class DashboardCoverage(BaseModel):
+    live: int  # cases that are not Outdated or Rejected
+    automated: int
+    to_be_automated: int
+    manual: int
+    cannot_be_automated: int  # not automated, with automation progress "Cannot be automated"
+    percent: float | None  # automated / live
+    automatable_percent: float | None  # automated / (live - cannot be automated)
+
+
+class DashboardPriority(BaseModel):
+    priority: str
+    total: int = 0
+    automated: int = 0
+
+
+class DashboardSuite(BaseModel):
+    id: int
+    name: str
+    total: int  # live cases
+    automated: int
+    to_be_automated: int
+    pending_review: int
+
+
+class DashboardArea(BaseModel):
+    """A top-level section with everything under it."""
+
+    section_id: int
+    suite_id: int
+    suite: str
+    name: str
+    total: int = 0
+    automated: int = 0
+
+
+class DashboardReview(BaseModel):
+    count: int
+    oldest_at: datetime | None
+    suite_id: int | None  # the suite with the most cases waiting
+
+
+class DashboardDay(BaseModel):
+    date: Day
+    passed: int = 0
+    failed: int = 0
+    blocked: int = 0
+    skipped: int = 0
+    retest: int = 0
+    untested: int = 0
+
+
+class DashboardResults(BaseModel):
+    recorded: int
+    executed: int  # passed, failed, blocked, retest (not skipped)
+    passed: int
+    pass_rate: float | None
+    previous_pass_rate: float | None  # the period just before
+    tested_cases: int
+    days: list[DashboardDay]
+
+
+class DashboardCaseRow(BaseModel):
+    id: int
+    suite_id: int
+    title: str
+    automated: bool
+    count: int  # failures, or flips between passed and failed
+    results: int
+    last_at: datetime | None = None
+    last_status: str | None = None
+
+
+class DashboardRun(RunStats):
+    id: int
+    name: str
+    created_at: datetime
+    source: str
+    closed: bool
+
+
+class DashboardAutomation(BaseModel):
+    agents: int
+    agents_online: int
+    jobs: dict[str, int]  # in the period, per status
+    last_job_at: datetime | None
+    catalog_managed: int  # live cases that follow an automated test
+
+
+class Dashboard(BaseModel):
+    days: int
+    generated_at: datetime
+    cases_total: int
+    states: dict[str, int]
+    coverage: DashboardCoverage
+    priorities: list[DashboardPriority]
+    suites: list[DashboardSuite]
+    areas: list[DashboardArea]
+    review: DashboardReview
+    results: DashboardResults
+    failing: list[DashboardCaseRow]
+    flaky: list[DashboardCaseRow]
+    runs: list[DashboardRun]
+    runs_in_period: int
+    automation: DashboardAutomation

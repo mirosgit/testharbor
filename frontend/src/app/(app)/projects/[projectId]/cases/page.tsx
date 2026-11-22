@@ -56,7 +56,15 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api";
 import { buildTree, flatten, type SectionNode } from "@/lib/tree";
-import type { CaseSort, Suite, TestCase } from "@/lib/types";
+import {
+  AUTOMATION_PROGRESSES,
+  AUTOMATION_STATUSES,
+  CASE_STATES,
+  PRIORITIES,
+  type CaseSort,
+  type Suite,
+  type TestCase,
+} from "@/lib/types";
 
 type Dialog =
   | { kind: "newSuite" }
@@ -109,6 +117,20 @@ export default function CasesPage() {
       <CasesWorkspace />
     </Suspense>
   );
+}
+
+const URL_FILTERS = ["state", "automation_status", "priority", "automation_progress"] as const;
+
+function filtersFromUrl(search: { get(key: string): string | null }): Filters {
+  const list = <T extends string>(key: string, allowed: readonly T[]): T[] =>
+    (search.get(key) ?? "").split(",").filter((v): v is T => (allowed as readonly string[]).includes(v));
+  return {
+    ...emptyFilters,
+    state: list("state", CASE_STATES),
+    automation_status: list("automation_status", AUTOMATION_STATUSES),
+    priority: list("priority", PRIORITIES),
+    automation_progress: list("automation_progress", AUTOMATION_PROGRESSES),
+  };
 }
 
 function CasesWorkspace() {
@@ -164,7 +186,11 @@ function CasesWorkspace() {
     return m;
   }, [flat]);
 
-  const [filters, setFilters] = useState<Filters>(emptyFilters);
+  // Links (from the dashboard) can open the list filtered: ?state=pending_review&priority=critical,high.
+  const [filters, setFilters] = useState<Filters>(() => filtersFromUrl(search));
+  useEffect(() => {
+    if (URL_FILTERS.some((k) => search.has(k))) setParams(Object.fromEntries(URL_FILTERS.map((k) => [k, null])));
+  }, []); // once: the filter bar owns them from here
   const filtered = isFiltered(filters);
   const [sort, setSortState] = useState<SortState<CaseSort>>({ sort: "manual", order: "asc" });
   const [pageSize, setPageSizeState] = useState(100);

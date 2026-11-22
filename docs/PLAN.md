@@ -445,3 +445,19 @@ Cases created from autotests used to have only a title (built-in catalogs) and w
   - pytest details come from `catalog_plugin.py`. The agent copies it into a temp dir, prepends that to `PYTHONPATH` and runs `pytest --collect-only -p testharbor_catalog` with `TESTHARBOR_CATALOG_OUT`. It reads docstrings, markers and pytest-bdd templates (`scenario_wrapper_template_registry`, or `__scenario__` in older versions). If loading the plugin fails, the agent falls back to plain node ids.
 - **Checked.** CLI tests cover both a real nested pytest run and a real pytest-bdd Scenario Outline. Real `playwright test --list` output (v1.65, two projects) was checked by hand.
 
+
+## Phase 21: project dashboard
+
+A Dashboard tab (`/projects/{id}/dashboard`, first in the project nav) answers "how are we doing" without exporting anything.
+
+- **API.** `GET /api/projects/{id}/dashboard?days=30` (1–365; the UI offers 7, 30 and 90) counts everything in the database in one request (`app/routers/dashboard.py`).
+  - "Live" cases are the ones not Outdated or Rejected; coverage and the breakdowns count only those. Coverage is automated / live; "of what can be automated" leaves out manual cases whose automation progress is "Cannot be automated".
+  - Areas are top-level sections with everything under them (at most 60). Priorities: automated share per priority.
+  - Review queue: Pending review count, the oldest `updated_at`, and per suite.
+  - Results are the ones recorded in the period, per UTC day. Pass rate = passed / (passed, failed, blocked, retest); skipped and untested don't count. It is compared with the period just before.
+  - Failing most: the 8 cases with the most failed results in the period, latest first on ties. Flaky: the 8 cases whose passed/failed results flip at least twice (a `lag()` window over the period).
+  - The last 14 runs with their status counts; agents online and jobs in the period. The catalog's "to sync" count comes from the existing catalog preview on the client.
+- **UI.** Four headline tiles (coverage, Pending review, pass rate with a sparkline and the change in points, autotests with a "to sync" button that opens the sync dialog), results per day (stacked columns, hover and arrow-key tooltip, a table view), the case mix (automation and state bars with legends), coverage by area (largest or least covered first) and by priority, failing, flaky and recent runs.
+  - Every legend row, area, priority, case and run links to what it counts. The cases page reads `state`, `automation_status`, `priority` and `automation_progress` (comma-separated) from the URL once into its filters, then drops them from the URL.
+  - Charts are plain HTML/SVG, no chart library. Colors are tokens in `globals.css` (`--chart-*`, separate light and dark steps): automation is one blue ramp plus gray; case states are hues checked for color-blind separation and always come with a labelled legend; results use the existing status colors.
+  - The data refreshes every minute and on the refresh button. The period lives in the URL (`?days=7`).

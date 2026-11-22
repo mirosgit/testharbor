@@ -28,6 +28,14 @@
   --color-status-skipped: var(--status-skipped);
   --color-status-retest: var(--status-retest);
   --color-status-untested: var(--status-untested);
+  --color-chart-automated: var(--chart-automated);
+  --color-chart-planned: var(--chart-planned);
+  --color-chart-manual: var(--chart-manual);
+  --color-chart-active: var(--chart-active);
+  --color-chart-review: var(--chart-review);
+  --color-chart-draft: var(--chart-draft);
+  --color-chart-outdated: var(--chart-outdated);
+  --color-chart-rejected: var(--chart-rejected);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -62,6 +70,16 @@
   --status-skipped: oklch(0.75 0.15 75);
   --status-retest: oklch(0.6 0.2 300);
   --status-untested: oklch(0.87 0.01 286);
+  /* Dashboard charts: automation is one blue ramp (done, planned) plus gray; case states are
+     categorical hues checked for color-blind separation, always shown with a labelled legend. */
+  --chart-automated: #2a78d6;
+  --chart-planned: #86b6ef;
+  --chart-manual: #d4d4d8;
+  --chart-active: #1baf7a;
+  --chart-review: #eda100;
+  --chart-draft: #6250d6;
+  --chart-outdated: #a1a1aa;
+  --chart-rejected: #e34948;
 }
 
 .dark {
@@ -84,6 +102,14 @@
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.552 0.016 285.938);
   --status-untested: oklch(0.4 0.01 286);
+  --chart-automated: #3987e5;
+  --chart-planned: #1c5cab;
+  --chart-manual: #3f3f46;
+  --chart-active: #199e70;
+  --chart-review: #c98500;
+  --chart-draft: #9085e9;
+  --chart-outdated: #71717a;
+  --chart-rejected: #e66767;
 }
 
 @layer base {

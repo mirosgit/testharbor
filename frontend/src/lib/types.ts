@@ -473,3 +473,83 @@ export interface CatalogApplied {
   outdated: number;
   skipped: number;
 }
+
+// --- Dashboard ---------------------------------------------------------------------------
+
+export interface DashboardCoverage {
+  live: number;
+  automated: number;
+  to_be_automated: number;
+  manual: number;
+  cannot_be_automated: number;
+  percent: number | null;
+  automatable_percent: number | null;
+}
+
+export interface DashboardDay {
+  date: string;
+  passed: number;
+  failed: number;
+  blocked: number;
+  skipped: number;
+  retest: number;
+  untested: number;
+}
+
+export interface DashboardCaseRow {
+  id: number;
+  suite_id: number;
+  title: string;
+  automated: boolean;
+  count: number;
+  results: number;
+  last_at: string | null;
+  last_status: ResultStatus | null;
+}
+
+export interface DashboardRun {
+  id: number;
+  name: string;
+  created_at: string;
+  source: "manual" | "ci";
+  closed: boolean;
+  total: number;
+  passed: number;
+  failed: number;
+  blocked: number;
+  skipped: number;
+  retest: number;
+  untested: number;
+}
+
+export interface Dashboard {
+  days: number;
+  generated_at: string;
+  cases_total: number;
+  states: Record<CaseState, number>;
+  coverage: DashboardCoverage;
+  priorities: { priority: Priority; total: number; automated: number }[];
+  suites: { id: number; name: string; total: number; automated: number; to_be_automated: number; pending_review: number }[];
+  areas: { section_id: number; suite_id: number; suite: string; name: string; total: number; automated: number }[];
+  review: { count: number; oldest_at: string | null; suite_id: number | null };
+  results: {
+    recorded: number;
+    executed: number;
+    passed: number;
+    pass_rate: number | null;
+    previous_pass_rate: number | null;
+    tested_cases: number;
+    days: DashboardDay[];
+  };
+  failing: DashboardCaseRow[];
+  flaky: DashboardCaseRow[];
+  runs: DashboardRun[];
+  runs_in_period: number;
+  automation: {
+    agents: number;
+    agents_online: number;
+    jobs: Partial<Record<JobStatus, number>>;
+    last_job_at: string | null;
+    catalog_managed: number;
+  };
+}

@@ -31,6 +31,7 @@ export function AppHeader() {
 
   const tabs = projectId
     ? [
+        { href: `/projects/${projectId}/dashboard`, label: "Dashboard" },
         { href: `/projects/${projectId}/cases`, label: "Test cases" },
         { href: `/projects/${projectId}/runs`, label: "Test runs" },
         { href: `/projects/${projectId}/autotests`, label: "Autotests" },

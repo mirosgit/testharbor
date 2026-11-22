@@ -4,6 +4,7 @@ import type {
   AutomationJobDetail,
   CatalogApplied,
   CatalogPreview,
+  Dashboard,
   RunParams,
   CaseBulkUpdate,
   CaseSort,
@@ -126,6 +127,8 @@ export const api = {
     ),
   autotestJob: (id: number) => request<AutomationJobDetail>(`/api/automation/jobs/${id}`),
   cancelAutotests: (id: number) => request<AutomationJob>(`/api/automation/jobs/${id}/cancel`, json("POST")),
+  dashboard: (projectId: number, days: number) =>
+    request<Dashboard>(`/api/projects/${projectId}/dashboard?days=${days}`),
   agents: (projectId: number) => request<AutomationAgent[]>(`/api/projects/${projectId}/automation/agents`),
   catalog: (projectId: number) => request<CatalogPreview>(`/api/projects/${projectId}/automation/catalog`),
   applyCatalog: (projectId: number, body: { uploaded_at: string; links: Record<string, number>; skip: string[] }) =>

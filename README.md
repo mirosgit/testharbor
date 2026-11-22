@@ -12,6 +12,10 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
 
 ## Features
 
+- **Dashboard per project.** Automation coverage (overall, by area and by priority), the Pending
+  review queue, pass rate per day with the change against the previous period, the cases that
+  fail most or flip between passed and failed, recent runs and the autotests catalog. Every number
+  links to the cases or runs behind it.
 - **Test cases in a tree.** Suites contain nested sections, and cases are listed on the right,
   similar to TestRail. You can drag and drop cases, including several at once, between sections.
 - **Case editor.** It has a steps table (action and expected result), preconditions, priority,
