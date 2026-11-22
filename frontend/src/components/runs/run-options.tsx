@@ -62,7 +62,7 @@ export function describeParams(params: RunParams, options?: AgentOption[]): stri
   for (const [name, value] of entries) {
     const o = byName.get(name);
     const label = o?.label || name;
-    const show = (v: string) => o?.choices.find((c) => c.value === v)?.label ?? v;
+    const show = (v: string) => o?.choices.find((c) => c.value === v)?.label || v;
     if (typeof value === "boolean") {
       if (value) parts.push(label);
     } else if (Array.isArray(value)) {
@@ -103,7 +103,7 @@ export function RunOptionsForm({
                   <SelectContent>
                     {o.choices.map((c) => (
                       <SelectItem key={c.value} value={c.value}>
-                        {c.label}
+                        {c.label || c.value}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -147,7 +147,7 @@ export function RunOptionsForm({
                       on ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90" : "hover:bg-muted",
                     )}
                   >
-                    {c.label}
+                    {c.label || c.value}
                   </button>
                 );
               })}

@@ -87,6 +87,8 @@ Take screenshots with the e2e container:
 
 `seedProject` names projects "E2E …", so the teardown removes them.
 
+README screenshots (`docs/screenshots/*.png`, light and `-dark`) come from the demo seed on a separate, throwaway compose project, never from the dev database: `FRONTEND_PORT=3101 BACKEND_PORT=8101 DB_PORT=5434 docker compose -p thshots up -d --build db backend frontend`, create an admin there, run the shots spec with `docker compose -p thshots --profile e2e run …`, then `docker compose -p thshots down -v`. Shoot at 1440×900; the dashboard at its full height.
+
 ## Domain notes
 
 - **Hierarchy.** Project → Suite → Section tree → TestCase (shown as `C<id>`).
