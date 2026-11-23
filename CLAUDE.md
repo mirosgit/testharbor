@@ -5,7 +5,7 @@ TestHarbor is a self-hosted, open-source test case management tool, in the spiri
 - One instance serves one company.
 - People work in it through the web UI. Automated tests report into it through a REST API, a CLI and an agent.
 
-Read this file first, then `docs/PLAN.md`. It holds the design decisions and notes from every phase so far, Phase 1 to 23.
+Read this file first, then `docs/PLAN.md`. It holds the design decisions and notes from every phase so far, Phase 1 to 22.
 
 ## Ground rules
 
@@ -40,7 +40,6 @@ Backend map (`backend/app/`):
 | Login, sessions, API tokens | `auth.py` |
 | Admin commands | `manage.py` |
 | Endpoints | `routers/*.py`; `jobs.py` handles "Run autotests" jobs and agents |
-| MCP server for Claude (`/api/mcp`, tools wrap the REST API) | `mcp_server.py` |
 
 Frontend map (`frontend/src/`):
 
@@ -81,7 +80,7 @@ Everything runs in Docker. Node and npm are not installed on the host.
 - **Backups.** The `backup` service writes daily, checked backups to `./backups` (gitignored). Never delete that folder, and never run `docker compose down -v` on the dev project: its database may hold data that matters. Throwaway stacks get their own `-p` name and `BACKUP_DIR`.
 - **Adding an npm package:** `docker run … node:22-alpine npm install <pkg>@<exact version>` in `frontend/`.
 
-At the time of writing, all tests pass: backend about 172, CLI 45, e2e 15.
+At the time of writing, all tests pass: backend about 168, CLI 45, e2e 14.
 
 ## Verification (visual)
 
@@ -117,7 +116,6 @@ README screenshots (`docs/screenshots/*.png`, light and `-dark`) come from the d
   - Sessions are signed cookies, with a `session_version` for revocation. There is a lockout after failed logins.
   - Bearer API tokens act as their owner.
   - Managing users and tokens requires a session, not a token.
-- **Claude / MCP.** Claude connects from the person's side (Claude Code on their own plan) to `/api/mcp` with an API token. Never add claude.ai sign-in or put AI keys in TestHarbor. MCP tools only wrap REST endpoints, and there are no delete tools.
 
 ## Conventions and gotchas
 

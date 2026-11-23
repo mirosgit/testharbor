@@ -55,23 +55,3 @@ test("admin invites a tester who sets a password; testers can't manage users", a
   await page.getByRole("button", { name: "Delete user" }).click();
   await expect(page.getByTestId("users")).not.toContainText(email);
 });
-
-test("Connect Claude: a token for Claude goes into the command, and the MCP endpoint takes it", async ({ page }) => {
-  await login(page);
-  await page.goto("/settings/claude");
-  const command = page.getByTestId("claude-command");
-  await expect(command).toContainText("claude mcp add --transport http --scope user testharbor");
-  await expect(command).toContainText("<your token>");
-  await page.getByTestId("claude-token").click();
-  await expect(command).toContainText(/Bearer th_\w+/);
-  const token = (await command.textContent())!.match(/Bearer (th_\w+)/)![1];
-  const url = (await command.textContent())!.match(/(http\S+\/api\/mcp)/)![1];
-  expect(url.endsWith("/api/mcp")).toBe(true);
-
-  const r = await page.request.post("/api/mcp", {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json, text/event-stream" },
-    data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_projects", arguments: {} } },
-  });
-  expect(r.ok()).toBeTruthy();
-  expect((await r.json()).result.structuredContent.projects).toBeInstanceOf(Array);
-});
