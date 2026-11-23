@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, User, Users } from "lucide-react";
+import { Bot, KeyRound, User, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -13,6 +13,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const items = [
     { href: "/settings", label: "Profile", icon: User },
     { href: "/settings/tokens", label: "API tokens", icon: KeyRound },
+    { href: "/settings/claude", label: "Claude", icon: Bot },
     ...(isAdmin ? [{ href: "/settings/users", label: "Users", icon: Users }] : []),
   ];
   return (

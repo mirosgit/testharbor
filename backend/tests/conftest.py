@@ -8,6 +8,9 @@ import os
 TEST_DB = os.environ.get(
     "TEST_DATABASE_URL", "postgresql+asyncpg://testharbor:testharbor@localhost:5433/testharbor_test"
 )
+# The suite migrates down to nothing and truncates every table: never let it near a real database.
+if not TEST_DB.rsplit("/", 1)[-1].split("?")[0].endswith("_test"):
+    raise SystemExit(f"TEST_DATABASE_URL must name a database ending in _test, got {TEST_DB.rsplit('@', 1)[-1]}")
 # Must happen before the app (and its engine) is imported.
 os.environ["DATABASE_URL"] = TEST_DB
 os.environ["SEED_DEMO"] = "false"

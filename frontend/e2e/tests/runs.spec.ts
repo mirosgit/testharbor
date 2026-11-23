@@ -209,10 +209,17 @@ test("Autotests page: pick single tests from the catalog and run them", async ({
   const picker = page.getByTestId("test-picker");
   // Not synced yet: nothing can be picked, the sync is offered.
   await expect(picker).toContainText("3 of 3 tests have no case yet");
+  await expect(picker.getByTestId("picker-view").getByRole("tab", { name: "No case 3" })).toHaveAttribute("aria-selected", "true");
   await expect(picker.getByRole("checkbox", { name: "All tests in Checkout" })).toBeDisabled();
   await picker.getByRole("button", { name: "Sync autotests" }).click();
   await page.getByTestId("catalog-dialog").getByRole("button", { name: /^Sync \d/ }).click();
   await expect(picker).not.toContainText("have no case yet");
+  // Tests with a case and without are apart.
+  const views = picker.getByTestId("picker-view");
+  await expect(views.getByRole("tab", { name: "With case 3" })).toHaveAttribute("aria-selected", "true");
+  await views.getByRole("tab", { name: "No case 0" }).click();
+  await expect(picker).toContainText("Every test has a case.");
+  await views.getByRole("tab", { name: "With case 3" }).click();
 
   await picker.getByPlaceholder("Search tests").fill("discount");
   await expect(picker.getByText("Orders are exported")).toHaveCount(0);

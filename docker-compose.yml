@@ -27,8 +27,11 @@ services:
       SECRET_KEY: ${SECRET_KEY:-change-me-please}
       SEED_DEMO: ${SEED_DEMO:-true}
       SECURE_COOKIES: ${SECURE_COOKIES:-false}
+      TZ: ${TZ:-UTC}  # for the names of the dumps taken before migrations
     volumes:
       - reports-data:/data/reports  # runs' HTML reports uploaded by agents
+      # A dump is taken here before new migrations run (app/migrate.py).
+      - ${BACKUP_DIR:-./backups}:/backups
     depends_on:
       db:
         condition: service_healthy
@@ -50,6 +53,36 @@ services:
         condition: service_healthy
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
+
+  # Daily backups of the database and the HTML reports into ./backups (or BACKUP_DIR), each one checked by
+  # restoring it into a scratch database. deploy/backup/backup.sh; docs/deployment.md, "Backups".
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    command: ["sh", "/opt/backup/backup.sh", "daemon"]
+    environment:
+      PGHOST: db
+      PGUSER: testharbor
+      PGPASSWORD: ${DB_PASSWORD:-testharbor}
+      PGDATABASE: testharbor
+      TZ: ${TZ:-UTC}
+      BACKUP_AT: ${BACKUP_AT:-03:15}
+      KEEP_DAILY: ${KEEP_DAILY:-7}
+      KEEP_WEEKLY: ${KEEP_WEEKLY:-4}
+      KEEP_MONTHLY: ${KEEP_MONTHLY:-6}
+      BACKUP_REPORTS: ${BACKUP_REPORTS:-true}
+    volumes:
+      - ./deploy/backup:/opt/backup:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+      - reports-data:/reports:ro
+    depends_on:
+      backend:
+        condition: service_healthy  # the schema is migrated by then
+    healthcheck:
+      test: ["CMD", "sh", "/opt/backup/backup.sh", "health"]
+      interval: 5m
+      timeout: 10s
+      start_period: 30s
 
   # Runs autotests from TestHarbor: a git branch of your test repository, picked when starting a run.
   # Setup: docs/runner.md (RUNNER_* in .env, the tests' .env in runner-secrets/tests.env), then `make runner`.

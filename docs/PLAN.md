@@ -337,7 +337,7 @@ Goal: run single automated tests from TestHarbor by selecting their cases, witho
 - **New cases** go into the "Autotests" suite, in sections from the path (domain › feature). Type is smoke or regression from the tags. Roles take the project's spelling, as on import. Line breaks in steps become Markdown hard breaks.
 - **No duplicates.** For each new test, the preview suggests up to 3 manual cases with similar titles: word overlap plus sequence ratio, ≥ 0.45. The person picks per test: create a case, link to a suggestion, link to any case by ID, or skip. Only manual cases can be link targets.
 - **Running selected cases.** The claim answer now carries the automation keys of the job's cases. The agent writes `{"case_ids", "automation_keys"}` to a temp file named by `TESTHARBOR_SELECTION`. A custom runner selects its tests by key, or by a case tag. Outline rows share the scenario's key, so they become one case with a result per row and role.
-- **Autotests page** (`/projects/{id}/autotests`, a tab next to Test runs). It holds the tree of the catalog's tests (path › test) with search and tri-state check boxes, the agent's status and run options, **Run selected** / **Run all**, and the recent jobs. Tests without a case are shown but can't be picked, and the page offers the sync, because their results would have nowhere to go. "Run autotests" on the runs page leads here; the dialog stays for selected cases on the cases page and for re-running a run's failed cases. The project header now fits phone width: the nav scrolls, and the project name is truncated.
+- **Autotests page** (`/projects/{id}/autotests`, a tab next to Test runs). It holds the tree of the catalog's tests (path › test) with search and tri-state check boxes, the agent's status and run options, **Run selected** / **Run all**, and the recent jobs. Tests without a case are shown but can't be picked, and the page offers the sync, because their results would have nowhere to go. The tree is split into tabs, **With case** / **No case** / **All**, with counts; it opens on the tests with a case (or on No case when none has one yet), and the last chosen tab is remembered per project in the browser. "Run autotests" on the runs page leads here; the dialog stays for selected cases on the cases page and for re-running a run's failed cases. The project header now fits phone width: the nav scrolls, and the project name is truncated.
 
 ## Phase 17: anyone can connect: testharbor.toml, built-in catalogs, local agents
 
@@ -461,3 +461,37 @@ A Dashboard tab (`/projects/{id}/dashboard`, first in the project nav) answers "
   - Every legend row, area, priority, case and run links to what it counts. The cases page reads `state`, `automation_status`, `priority` and `automation_progress` (comma-separated) from the URL once into its filters, then drops them from the URL.
   - Charts are plain HTML/SVG, no chart library. Colors are tokens in `globals.css` (`--chart-*`, separate light and dark steps): automation is one blue ramp plus gray; case states are hues checked for color-blind separation and always come with a labelled legend; results use the existing status colors.
   - The data refreshes every minute and on the refresh button. The period lives in the URL (`?days=7`).
+
+## Phase 22: data safety (backups, migrations)
+
+Data must survive updates and mistakes. Before this phase there were no scheduled backups, and migrations ran on every backend start with no copy taken first.
+
+- **Dump before migrating.** The backend starts through `python -m app.migrate` instead of `alembic upgrade head`. When the database's revision isn't a head (an update brought migrations), it runs `pg_dump` (client 16 from PGDG, baked into the backend image; `PG_DUMP`) into `$BACKUP_DIR/pre-migrate/` first, keeping the last 10. If the dump fails, nothing is migrated and the backend exits. Fresh databases and up-to-date ones are not dumped. `PRE_MIGRATE_BACKUP=false` turns it off. Alembic runs all pending migrations in one transaction, so a failing one leaves the schema as it was.
+- **`backup` service** (`postgres:16-alpine` + `deploy/backup/backup.sh`, no image to build). Every day at `BACKUP_AT` (in `TZ`), it dumps the database and tars the reports volume (read-only mount), then restores the dump into a scratch database (`testharbor_restore_check`, dropped after) and counts rows. Copies go to `daily/`, hard-linked into `weekly/` (when none from the last 6 days) and `monthly/` (when none this month), each pruned to `KEEP_*`.
+  - Due once the time has passed and today has none, so a missed backup runs at the next start. After a failure it retries hourly. A dump that fails the check is renamed `*.failed`.
+  - The service waits for a healthy backend, so it never dumps an unmigrated database. Its healthcheck fails when the last daily backup failed or is older than 26 hours.
+  - Files get the backups folder's owner and mode 600, since dumps hold password hashes. Compose bind-mounts `BACKUP_DIR` (default `./backups`), so `docker compose down -v` doesn't touch backups.
+- **Restore** (`deploy/restore.sh FILE|latest [--reports]`, `make restore`). It checks the file in the scratch database first, asks (or `YES=1`), stops the backend and frontend, and saves a `pre-restore/` backup. Then it runs `pg_restore --clean --single-transaction --exit-on-error`, so the restore is all or nothing, and with `--reports` it unpacks the matching reports archive through a one-off backend container. Finally it starts the backend and frontend again, even after a failure.
+- **Guards in the tests.** The backend suite refuses to run unless `TEST_DATABASE_URL` names a `*_test` database, because it downgrades to base and truncates every table. `tests/test_migrations.py` has three parts:
+  - A lint: `op.drop_table`, `op.drop_column`, `alter_column(type_=…)` and `DELETE`/`TRUNCATE`/`DROP` SQL in an `upgrade()` need a `# data-loss-ok: <why>` comment.
+  - The newest migration is run on the demo seed at the previous revision. Every table must keep its row count, and its values over the old columns.
+  - A failing dump blocks the migration.
+- **Not done yet (next):** deleting suites, sections and projects is open to every tester and API token and cascades to cases and their results. Plan: admins only, a trash with restore, and a change history for cases.
+
+## Phase 23: Claude through MCP
+
+People want to use Claude with TestHarbor on the Claude plan they already pay for (personal, Team or
+Enterprise). Anthropic doesn't allow third-party apps to sign in with claude.ai or use a plan's limits
+(Agent SDK docs). Its OAuth "linked billing" refuses organizations that have only a plan, and needs an
+OAuth app registered per deployment. So the agent runs on the person's side, in Claude Code signed in to
+their own plan, and TestHarbor is an MCP server for it. TestHarbor holds no AI credentials.
+
+- **Endpoint.** `POST /api/mcp`: Streamable HTTP, stateless, JSON responses (`mcp` 2.x `MCPServer`, `app/mcp_server.py`). It is mounted as a Starlette route in front of FastAPI's routers, and the session manager runs in the app's lifespan. DNS-rebinding protection is off: it guards localhost servers, and this one needs a bearer token.
+- **Auth.** A TestHarbor API token (`Authorization: Bearer th_…`). Without a valid one the answer is 401 with `WWW-Authenticate: Bearer` before the MCP layer runs. There is no OAuth, so connectors that only do OAuth (claude.ai web) can't use it yet.
+- **Tools are thin wrappers over the REST API**, called in-process (`httpx.ASGITransport`) with the caller's token taken from a context variable. Permissions, validation, `updated_by` and errors are the REST API's own; errors come back as tool errors with the status and detail. Enum arguments use the models' enums, so the schemas can't drift.
+  - Read tools (`read_only_hint`): projects, structure, project values, case search, case, case history, runs, a run's cases (filter by status), dashboard. List results are wrapped in objects (`{"projects": […]}`) so clients get one structured result.
+  - Write tools: `create_section`, `create_case` (defaults to `pending_review`, so a person reviews what Claude wrote), `update_case` (only the given fields). There are deliberately no delete tools.
+  - The server's `instructions` tell the agent to look before writing, reuse sections and the project's roles, owners, sprints and tags, and not to state behaviour it wasn't told about.
+- **UI.** Settings › Claude (also "Connect Claude" in the user menu). It creates a token named "Claude" and fills it into the `claude mcp add` command. It also shows a `.mcp.json` for repositories with `${TESTHARBOR_TOKEN}`, example requests, and what Claude can read and change. `CodeBlock` moved to `components/code-block.tsx`.
+- **Tests.** `tests/test_mcp.py` covers: 401 without a token or with a wrong one, the tool list and its annotations (no delete tools), reading and writing as the token's owner (Pending review, `updated_by`, partial update, errors), and runs filtered by status. The e2e test creates a token on the page and calls the endpoint with it. The e2e teardown revokes only the E2E admin's "Claude" tokens, because the admin sees everyone's tokens.
+

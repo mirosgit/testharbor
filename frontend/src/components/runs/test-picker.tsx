@@ -2,12 +2,13 @@
 
 import { ChevronRight, Search } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { CatalogSyncDialog, useCatalog } from "@/components/cases/catalog-sync";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CatalogItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +21,26 @@ interface Folder {
 
 /** Tests of the catalog that have a case (only those can run: their results need somewhere to go). */
 export const runnable = (i: CatalogItem) => i.case_id != null && i.action !== "outdated";
+
+type View = "linked" | "unlinked" | "all";
+const VIEWS: View[] = ["linked", "unlinked", "all"];
+
+function storedView(projectId: number): View | null {
+  try {
+    const v = window.localStorage.getItem(`testharbor.picker-view.${projectId}`);
+    return VIEWS.includes(v as View) ? (v as View) : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeView(projectId: number, v: View) {
+  try {
+    window.localStorage.setItem(`testharbor.picker-view.${projectId}`, v);
+  } catch {
+    // Blocked storage: the default view is shown next time.
+  }
+}
 
 function tree(items: CatalogItem[]): Folder {
   const root: Folder = { name: "", path: "", folders: [], tests: [] };
@@ -64,14 +85,25 @@ export function TestPicker({
 
   const items = useMemo(() => (catalog?.items ?? []).filter((i) => i.action !== "outdated"), [catalog]);
   const notSynced = items.filter((i) => !runnable(i)).length;
+  const synced = items.length - notSynced;
+  // The chosen view, else the tests with a case (the ones that can run), else those without.
+  const [chosenView, setChosenView] = useState<View | null>(null);
+  useEffect(() => setChosenView(storedView(projectId)), [projectId]);
+  const view: View = chosenView ?? (synced || !notSynced ? "linked" : "unlinked");
+  const chooseView = (v: string) => {
+    setChosenView(v as View);
+    storeView(projectId, v as View);
+  };
   const shown = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-    if (!words.length) return items;
     return items.filter((i) => {
+      if (view === "linked" && !runnable(i)) return false;
+      if (view === "unlinked" && runnable(i)) return false;
+      if (!words.length) return true;
       const text = `${i.title} ${i.path.join(" ")} ${i.case_key ?? ""}`.toLowerCase();
       return words.every((w) => text.includes(w));
     });
-  }, [items, q]);
+  }, [items, q, view]);
   const root = useMemo(() => tree(shown), [shown]);
 
   if (isLoading) return <p className="text-sm text-muted-foreground">Loading the tests…</p>;
@@ -167,6 +199,19 @@ export function TestPicker({
           </Button>
         </div>
       )}
+      <Tabs value={view} onValueChange={chooseView}>
+        <TabsList className="h-8 w-full sm:w-fit" data-testid="picker-view">
+          <TabsTrigger value="linked" className="text-xs">
+            With case <span className="text-muted-foreground tabular-nums">{synced}</span>
+          </TabsTrigger>
+          <TabsTrigger value="unlinked" className="text-xs">
+            No case <span className="text-muted-foreground tabular-nums">{notSynced}</span>
+          </TabsTrigger>
+          <TabsTrigger value="all" className="text-xs">
+            All <span className="text-muted-foreground tabular-nums">{items.length}</span>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
       <div className="relative">
         <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input className="h-8 pl-8" placeholder="Search tests" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -178,7 +223,15 @@ export function TestPicker({
             {root.folders.map((f) => renderFolder(f, 0))}
           </ul>
         ) : (
-          <p className="py-4 text-center text-sm text-muted-foreground">No tests match.</p>
+          <p className="py-4 text-center text-sm text-muted-foreground">
+            {q
+              ? "No tests match."
+              : view === "linked"
+                ? "No tests have a case yet. Sync them to run them one by one."
+                : view === "unlinked"
+                  ? "Every test has a case."
+                  : "No tests."}
+          </p>
         )}
       </div>
       <CatalogSyncDialog open={syncOpen} onOpenChange={setSyncOpen} projectId={projectId} onApplied={() => onSynced?.()} />

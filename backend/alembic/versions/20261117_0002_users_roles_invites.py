@@ -51,6 +51,7 @@ def upgrade() -> None:
     sa.UniqueConstraint('token_hash', name=op.f('uq_invites_token_hash'))
     )
     # Tokens created before user accounts existed have no owner: remove them.
+    # data-loss-ok: ownerless tokens can't act as anyone once tokens act as their owner.
     op.execute("DELETE FROM api_tokens")
     op.add_column('api_tokens', sa.Column('user_id', sa.Integer(), nullable=False))
     op.create_index(op.f('ix_api_tokens_user_id'), 'api_tokens', ['user_id'], unique=False)
