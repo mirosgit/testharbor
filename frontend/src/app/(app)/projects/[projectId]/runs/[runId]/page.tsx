@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Bot, FileText, Lock, LockOpen, MoreHorizontal, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Bot, FileText, ListPlus, Lock, LockOpen, MoreHorizontal, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { AutomationIcon, PriorityBadge, StatusBadge } from "@/components/badges";
 import { ConfirmDialog, NameDialog } from "@/components/dialogs";
 import { Markdown } from "@/components/markdown";
+import { AddCasesDialog } from "@/components/runs/add-cases-dialog";
 import { ExecuteSheet } from "@/components/runs/execute-sheet";
 import { passRate, percentDone, RunProgress, StatusCounts } from "@/components/runs/progress";
 import { AutotestsPanel, RunAutotestsDialog } from "@/components/runs/autotests";
@@ -79,7 +80,7 @@ function RunView() {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortState<RunCaseSort>>({ sort: "manual", order: "asc" });
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [dialog, setDialog] = useState<"edit" | "delete" | "report" | "autotests" | null>(null);
+  const [dialog, setDialog] = useState<"edit" | "delete" | "report" | "autotests" | "add" | null>(null);
   const isAdmin = useIsAdmin();
 
   const openCaseId = search.get("case") ? Number(search.get("case")) : null;
@@ -180,9 +181,10 @@ function RunView() {
         {!run ? (
           <Skeleton className="h-32" />
         ) : (
-          <div className="mb-6 grid gap-4">
-            <div className="flex items-start gap-3">
-              <div className="min-w-0 flex-1">
+          <div className="mb-6 grid min-w-0 gap-4">
+            {/* On narrow screens the actions wrap below the title instead of pushing the page wider. */}
+            <div className="flex flex-wrap items-start gap-3">
+              <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">
                 <div className="flex items-center gap-2">
                   <RunSourceBadge run={run} />
                   <span className="text-sm text-muted-foreground">R{run.id}</span>
@@ -201,6 +203,11 @@ function RunView() {
                   <CiMeta run={run} report={false} />
                 </div>
               </div>
+              {!run.closed && (
+                <Button variant="outline" size="sm" onClick={() => setDialog("add")} data-testid="add-cases">
+                  <ListPlus /> Add cases
+                </Button>
+              )}
               {!run.closed && (
                 <Button variant="outline" size="sm" onClick={() => setDialog("autotests")}>
                   <Bot /> Run autotests
@@ -312,9 +319,14 @@ function RunView() {
             ))}
           </div>
         ) : all.length === 0 ? (
-          <p className="rounded-lg border border-dashed p-12 text-center text-muted-foreground">
+          <div className="grid justify-items-center gap-3 rounded-lg border border-dashed p-12 text-center text-muted-foreground">
             This run has no cases.
-          </p>
+            {!readOnly && (
+              <Button size="sm" onClick={() => setDialog("add")}>
+                <ListPlus /> Add cases
+              </Button>
+            )}
+          </div>
         ) : groups.length === 0 ? (
           <p className="p-12 text-center text-muted-foreground">No cases match.</p>
         ) : (
@@ -432,6 +444,14 @@ function RunView() {
               await api.updateRun(runId, v);
               invalidate();
             }}
+          />
+          <AddCasesDialog
+            open={dialog === "add"}
+            onOpenChange={(o) => !o && setDialog(null)}
+            projectId={projectId}
+            runId={runId}
+            inRun={new Set(all.map((c) => c.case_id))}
+            onAdded={invalidate}
           />
           <RunAutotestsDialog
             open={dialog === "autotests"}

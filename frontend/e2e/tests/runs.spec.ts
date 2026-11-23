@@ -41,6 +41,33 @@ test("manual run: create from a suite and record results", async ({ page }) => {
   await expect(page.getByTestId("case-history")).toContainText("Release smoke");
 });
 
+test("a forgotten case is added to an existing run", async ({ page }) => {
+  await login(page);
+  const { project, cases } = await seedProject(page.request, ["Login works", "Logout works", "Signup works"]);
+  const run = await (
+    await page.request.post(`/api/projects/${project.id}/runs`, { data: { name: "Smoke", case_ids: [cases[0].id] } })
+  ).json();
+  await page.goto(`/projects/${project.id}/runs/${run.id}`);
+  await expect(page.getByText("executed (0/1)")).toBeVisible();
+
+  await page.getByTestId("add-cases").click();
+  const dialog = page.getByTestId("add-cases-dialog");
+  // The case already in the run is shown but can't be picked.
+  await expect(dialog.getByText("In run", { exact: true })).toHaveCount(1);
+  await expect(dialog.getByRole("checkbox", { name: "All cases in Login" })).toBeEnabled();
+  await dialog.getByPlaceholder("Search by title, C123 or tag").fill("logout");
+  await expect(dialog.getByText("Signup works")).toHaveCount(0);
+  await dialog.getByText("Logout works").click();
+  await dialog.getByTestId("add-cases-submit").click();
+
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText("executed (0/2)")).toBeVisible();
+  await expect(page.getByTestId("run-case-row").filter({ hasText: "Logout works" })).toHaveCount(1);
+  // Closed runs can't take more cases.
+  await page.getByRole("button", { name: "Close run" }).click();
+  await expect(page.getByTestId("add-cases")).toHaveCount(0);
+});
+
 test("JUnit upload with an API token creates a CI run", async ({ page, baseURL }) => {
   await login(page);
   const { project, cases } = await seedProject(page.request, ["Login works"]);
