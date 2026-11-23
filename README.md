@@ -74,6 +74,12 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
   - Results carry their **configuration** (a role, a browser), so one case can show a result per
     role or browser in the same run.
   - A pytest plugin with a `@pytest.mark.case("C142")` marker.
+- **Claude, on your own account.** Settings › Claude connects Claude Code to TestHarbor through MCP
+  (`/api/mcp`, with an API token). Claude can look up projects, cases, runs and the dashboard, and write
+  test cases, which arrive as Pending review. It runs on your side, on your personal or company Claude
+  plan, so TestHarbor needs no AI keys. See [docs/integration.md](docs/integration.md#claude-mcp).
+- **Backups.** Daily database and report backups, each checked by a test restore, plus a dump before
+  every update that changes the schema (see [docs/deployment.md](docs/deployment.md)).
 - **Team accounts.** Testers are invited with one-time links. There are two roles, Admin and
   Tester. Passwords are hashed with argon2id, sign-ins are locked after repeated failures, and
   sessions can be revoked instantly. Results record who executed them.

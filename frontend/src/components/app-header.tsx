@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Anchor, ChevronsUpDown, KeyRound, LogOut, User, Users } from "lucide-react";
+import { Anchor, Bot, ChevronsUpDown, KeyRound, LogOut, User, Users } from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 
@@ -105,6 +105,9 @@ export function AppHeader() {
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => router.push("/settings/tokens")}>
               <KeyRound /> API tokens
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => router.push("/settings/claude")}>
+              <Bot /> Connect Claude
             </DropdownMenuItem>
             {me?.role === "admin" && (
               <DropdownMenuItem onSelect={() => router.push("/settings/users")}>
