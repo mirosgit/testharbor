@@ -3,12 +3,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
-from starlette.routing import Route
 
 from app.auth import current_principal
 from app.config import get_settings
-from app.mcp_server import PATH as MCP_PATH
-from app.mcp_server import mcp_asgi, server as mcp_server
 from app.routers import (
     auth,
     automation,
@@ -47,8 +44,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 )
     except Exception:  # DB not migrated yet etc. - not fatal for startup
         pass
-    async with mcp_server.session_manager.run():
-        yield
+    yield
 
 
 app = FastAPI(
@@ -77,5 +73,3 @@ for module in (projects, suites, sections, cases, io, runs, automation, jobs, ca
     app.include_router(module.router, dependencies=protected)
 app.include_router(reports.api, dependencies=protected)
 app.include_router(reports.public)  # a signed link is the access: reports' files load without the cookie
-# MCP for AI agents (Claude Code and others), behind an API token: app/mcp_server.py.
-app.router.routes.append(Route(MCP_PATH, endpoint=mcp_asgi, methods=["GET", "POST", "DELETE"]))

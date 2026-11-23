@@ -11,12 +11,8 @@ export default async function globalTeardown(config: FullConfig) {
     for (const p of projects.filter((p) => /^(E2E|Smoke project) [0-9a-z]+$/.test(p.name))) {
       await api.delete(`/api/projects/${p.id}`);
     }
-    const tokens: { id: number; name: string; owner: string | null; revoked_at: string | null }[] = await (
-      await api.get("/api/tokens")
-    ).json();
-    // The admin sees everyone's tokens: only the test admin's "Claude" tokens are the tests' own.
-    const own = (t: { name: string; owner: string | null }) => t.name === "e2e" || (t.name === "Claude" && t.owner === "E2E Admin");
-    for (const t of tokens.filter((t) => own(t) && !t.revoked_at)) {
+    const tokens: { id: number; name: string; revoked_at: string | null }[] = await (await api.get("/api/tokens")).json();
+    for (const t of tokens.filter((t) => t.name === "e2e" && !t.revoked_at)) {
       await api.delete(`/api/tokens/${t.id}`);
     }
     // Delete the users the tests invited.

@@ -1,11 +1,10 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Plus } from "lucide-react";
+import { Check, Copy, KeyRound, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { CodeBlock } from "@/components/code-block";
 import { ConfirmDialog, NameDialog } from "@/components/dialogs";
 import { Button } from "@/components/ui/button";
 import {
@@ -154,5 +153,32 @@ testcli upload report.xml --project ${projectId} --run-name "Nightly" --auto-cre
         onConfirm={() => revoke.mutate(revoking!.id)}
       />
     </>
+  );
+}
+
+function CodeBlock({ code, testId }: { code: string; testId?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="relative">
+      <pre
+        data-testid={testId}
+        className="overflow-x-auto rounded-lg border bg-muted/50 p-4 pr-12 font-mono text-[13px] leading-relaxed break-all whitespace-pre-wrap"
+      >
+        {code}
+      </pre>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="absolute top-2 right-2"
+        aria-label="Copy"
+        onClick={async () => {
+          await navigator.clipboard?.writeText(code);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+      >
+        {copied ? <Check /> : <Copy />}
+      </Button>
+    </div>
   );
 }
