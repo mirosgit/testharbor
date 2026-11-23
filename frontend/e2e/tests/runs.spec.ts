@@ -91,6 +91,43 @@ test("a forgotten case is added to an existing run", async ({ page }) => {
   await expect(page.getByTestId("add-cases")).toHaveCount(0);
 });
 
+test("a run's Run autotests can pick single autotests from the catalog", async ({ page }) => {
+  await login(page);
+  const { project, cases } = await seedProject(page.request, ["Manual check"]);
+  const test_ = (key: string, title: string, path: string[]) => ({
+    key, title, path, description: "", preconditions: "", steps: [], roles: [], tags: [], case_ids: [],
+  });
+  const preview = await (
+    await page.request.put(`/api/projects/${project.id}/automation/catalog`, {
+      data: { agent: "qa-box", tests: [
+        test_("t::add", "A discount code is added", ["Checkout"]),
+        test_("t::export", "Orders are exported", ["Orders"]),
+      ] },
+    })
+  ).json();
+  await page.request.post(`/api/projects/${project.id}/automation/catalog/apply`, { data: { uploaded_at: preview.uploaded_at } });
+  const run = await (
+    await page.request.post(`/api/projects/${project.id}/runs`, { data: { name: "Nightly", case_ids: [cases[0].id] } })
+  ).json();
+
+  await page.goto(`/projects/${project.id}/runs/${run.id}`);
+  await page.getByRole("button", { name: "Run autotests" }).click();
+  await page.getByRole("radio", { name: /Choose tests/ }).check();
+  const picker = page.getByTestId("test-picker");
+  await picker.getByPlaceholder("Search tests").fill("export");
+  await picker.getByText("Orders are exported").click();
+  await page.getByRole("button", { name: "Run 1 test" }).click();
+
+  const job = await (
+    await page.request.post(`/api/projects/${project.id}/automation/claim`, { data: { agent: "qa-box" } })
+  ).json();
+  expect(job.run_id).toBe(run.id);
+  expect(job.automation_keys).toEqual(["t::export"]);
+  // Its case joined the run.
+  await expect(page.getByTestId("run-case-row").filter({ hasText: "Orders are exported" })).toHaveCount(1);
+  await page.request.post(`/api/automation/jobs/${job.id}/cancel`);
+});
+
 test("JUnit upload with an API token creates a CI run", async ({ page, baseURL }) => {
   await login(page);
   const { project, cases } = await seedProject(page.request, ["Login works"]);

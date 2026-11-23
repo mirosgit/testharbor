@@ -36,7 +36,8 @@ from any framework, link tests to cases with `C123` IDs, and see manual and CI r
 - **Manual test runs.** Create a run from a whole suite, from chosen sections, from the current
   filter, or from selected cases. A case that was forgotten can be added to an open run later
   (**Add cases**: search, single cases or whole sections), marked New, and run right away: executed by
-  hand, or with autotests through **Add & run autotests** ("Just added"). The run page shows a progress bar and per-status counts. Each
+  hand, or with autotests through **Add & run autotests** ("Just added"). A run's **Run autotests** can
+  also pick single autotests from the agent's list. The run page shows a progress bar and per-status counts. Each
   case can have several results; the most recent one is its current status. "Save & next untested"
   moves you to the next case without a result.
 - **Deleting runs** is for admins, one at a time or several from the runs list.
