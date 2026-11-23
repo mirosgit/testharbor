@@ -5,7 +5,7 @@ TestHarbor is a self-hosted, open-source test case management tool, in the spiri
 - One instance serves one company.
 - People work in it through the web UI. Automated tests report into it through a REST API, a CLI and an agent.
 
-Read this file first, then `docs/PLAN.md`. It holds the design decisions and notes from every phase so far, Phase 1 to 21.
+Read this file first, then `docs/PLAN.md`. It holds the design decisions and notes from every phase so far, Phase 1 to 22.
 
 ## Ground rules
 
@@ -26,7 +26,7 @@ Read this file first, then `docs/PLAN.md`. It holds the design decisions and not
 | `frontend/e2e/` | Playwright tests (separate package, run in the `e2e` compose service) |
 | `cli/` | `testcli` (stdlib only): `upload` reports, `agent` runs tests on request (settings in `testharbor.toml`, `init` writes one; built-in catalogs in `collect.py`), plus a pytest plugin (`@pytest.mark.case`) |
 | `docs/` | `PLAN.md` (design and phase notes), `integration.md` (connecting autotests), `deployment.md`, `ci/` examples |
-| `deploy/` | Caddyfile (HTTPS in prod), `backup.sh`, `runner/` (the test runner image; `docs/runner.md`) |
+| `deploy/` | Caddyfile (HTTPS in prod), `backup/backup.sh` (the `backup` service), `backup.sh` / `restore.sh` (host wrappers), `runner/` (the test runner image; `docs/runner.md`) |
 
 Backend map (`backend/app/`):
 
@@ -72,10 +72,15 @@ Everything runs in Docker. Node and npm are not installed on the host.
   ```sh
   docker compose run --rm --no-deps -T -v "$PWD/backend:/app" --user "$(id -u):$(id -g)" backend alembic revision --autogenerate --rev-id 00NN -m "..."
   ```
-  Review the result and add data steps if needed. Migrations apply on backend start. `tests/test_models.py` fails if models and migrations drift.
+  Review the result and add data steps if needed. Migrations apply on backend start (`app/migrate.py`, which dumps the database first). `tests/test_models.py` fails if models and migrations drift.
+- **Migrations never lose data.** They run by themselves on databases with people's work.
+  - Don't drop a column or table in the same release that stops using it. Move its data first, or drop it in a later migration once nothing reads it.
+  - `tests/test_migrations.py` fails on `drop_table` / `drop_column` / `alter_column(type_=…)` / `DELETE`·`TRUNCATE`·`DROP` SQL in `upgrade()` unless it carries a `# data-loss-ok: <why>` comment.
+  - It also runs the newest migration on demo data and checks that every row and value survives.
+- **Backups.** The `backup` service writes daily, checked backups to `./backups` (gitignored). Never delete that folder, and never run `docker compose down -v` on the dev project: its database may hold data that matters. Throwaway stacks get their own `-p` name and `BACKUP_DIR`.
 - **Adding an npm package:** `docker run … node:22-alpine npm install <pkg>@<exact version>` in `frontend/`.
 
-At the time of writing, all tests pass: backend about 152, CLI 45, e2e 14.
+At the time of writing, all tests pass: backend about 168, CLI 45, e2e 14.
 
 ## Verification (visual)
 

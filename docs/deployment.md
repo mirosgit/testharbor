@@ -89,37 +89,68 @@ owner. Tokens cannot manage users or other tokens.
 
 ## 5. Backups
 
+They are on by default. The `backup` service (started with the rest) makes one every day at
+`BACKUP_AT` (03:15 by default, in `TZ`, UTC by default) into `backups/` next to the code, or into
+`BACKUP_DIR`:
+
+| Folder | What | Kept |
+|---|---|---|
+| `daily/` | the database dump and an archive of the runs' HTML reports | `KEEP_DAILY=7` |
+| `weekly/`, `monthly/` | the same files, hard-linked from `daily/` (no extra space) | `KEEP_WEEKLY=4`, `KEEP_MONTHLY=6` |
+| `pre-migrate/` | a dump the backend takes by itself before an update changes the database schema | the last 10 |
+| `pre-restore/` | what was there before a restore | the last 10 |
+| `manual/` | `./deploy/backup.sh` | the last 10 |
+
+Every backup is checked by restoring it into a scratch database. A backup that fails the check is
+renamed `*.failed` and tried again an hour later. A missed one (the server was off at 03:15) runs as
+soon as the service is up again. `th ps` shows `backup` as **unhealthy** when the last daily backup failed
+or is more than 26 hours old.
+
+Create the folder before the first start (`mkdir -p backups`; `make prod-up` does it), so it belongs to
+you and not to root. The files are readable by that owner only: dumps hold password hashes.
+
 ```sh
-./deploy/backup.sh          # writes backups/testharbor-<date>.dump and keeps the newest 14
+./deploy/backup.sh                       # a checked backup right now, into backups/manual
+th run --rm --no-deps backup sh /opt/backup/backup.sh list         # what is there
+th run --rm --no-deps backup sh /opt/backup/backup.sh verify latest  # restore the newest into a scratch DB
 ```
 
-To run it every day, add a cron entry (`crontab -e`):
+**Copy `backups/` off the server.** A backup on the same disk doesn't help when the disk or the server
+is lost. Either point `BACKUP_DIR` at a mounted second disk or network share, or copy the folder with
+cron, for example with rclone to object storage, after the daily backup:
 
 ```
-15 3 * * * cd /opt/testharbor && ./deploy/backup.sh >> backups/backup.log 2>&1
+45 3 * * * rclone sync /opt/testharbor/backups remote:testharbor-backups
 ```
 
-Copy `backups/` off the server as well, for example to object storage or another machine. A backup
-that only exists on the same disk doesn't protect you from losing the server.
-
-To restore, stop the app containers and load the dump:
+### Restoring
 
 ```sh
-th stop backend frontend
-th exec -T db pg_restore -U testharbor -d testharbor --clean --if-exists < backups/testharbor-YYYYMMDD-HHMMSS.dump
-th start backend frontend
+COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml" ./deploy/restore.sh latest
+COMPOSE="…" ./deploy/restore.sh backups/daily/testharbor-20261123-031500.dump --reports
 ```
+
+It checks the file in a scratch database first, so a broken file changes nothing. Then it asks for
+confirmation, stops the backend and frontend, and saves the current state into `pre-restore/`. It
+replaces the database in one transaction (all or nothing), and the HTML reports with `--reports`.
+Finally it starts the backend and frontend again. If the restore was a mistake, restore the newest
+file in `pre-restore/`.
 
 ## 6. Updating
 
 ```sh
 cd /opt/testharbor
-./deploy/backup.sh
 git pull
 th up -d --build
 ```
 
-Database migrations run automatically when the backend starts.
+Database migrations run automatically when the backend starts. When an update brings new migrations,
+the backend first dumps the database into `backups/pre-migrate/`. If that dump fails, nothing is
+migrated and the backend does not start (see `th logs backend`), so the data is never changed
+without a copy. A migration that fails is rolled back as a whole.
+
+To go back to the previous version after an update: check out the previous commit, then restore the
+`pre-migrate/` dump with `./deploy/restore.sh`, then run `th up -d --build`.
 
 ## Security checklist
 
@@ -130,7 +161,7 @@ Database migrations run automatically when the backend starts.
       `0.0.0.0` ports.
 - [ ] `SEED_DEMO=false`.
 - [ ] Admin accounts use long, unique passwords. Keep the number of admins small.
-- [ ] Backups run and are copied off the server. Do a test restore once.
+- [ ] `th ps` shows `backup` as healthy, and `backups/` is copied off the server.
 - [ ] Update regularly (`git pull`, then `th up -d --build`).
 
 Built-in protections:

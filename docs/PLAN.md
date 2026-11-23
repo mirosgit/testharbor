@@ -461,3 +461,19 @@ A Dashboard tab (`/projects/{id}/dashboard`, first in the project nav) answers "
   - Every legend row, area, priority, case and run links to what it counts. The cases page reads `state`, `automation_status`, `priority` and `automation_progress` (comma-separated) from the URL once into its filters, then drops them from the URL.
   - Charts are plain HTML/SVG, no chart library. Colors are tokens in `globals.css` (`--chart-*`, separate light and dark steps): automation is one blue ramp plus gray; case states are hues checked for color-blind separation and always come with a labelled legend; results use the existing status colors.
   - The data refreshes every minute and on the refresh button. The period lives in the URL (`?days=7`).
+
+## Phase 22: data safety (backups, migrations)
+
+Data must survive updates and mistakes. Before this phase there were no scheduled backups, and migrations ran on every backend start with no copy taken first.
+
+- **Dump before migrating.** The backend starts through `python -m app.migrate` instead of `alembic upgrade head`. When the database's revision isn't a head (an update brought migrations), it runs `pg_dump` (client 16 from PGDG, baked into the backend image; `PG_DUMP`) into `$BACKUP_DIR/pre-migrate/` first, keeping the last 10. If the dump fails, nothing is migrated and the backend exits. Fresh databases and up-to-date ones are not dumped. `PRE_MIGRATE_BACKUP=false` turns it off. Alembic runs all pending migrations in one transaction, so a failing one leaves the schema as it was.
+- **`backup` service** (`postgres:16-alpine` + `deploy/backup/backup.sh`, no image to build). Every day at `BACKUP_AT` (in `TZ`), it dumps the database and tars the reports volume (read-only mount), then restores the dump into a scratch database (`testharbor_restore_check`, dropped after) and counts rows. Copies go to `daily/`, hard-linked into `weekly/` (when none from the last 6 days) and `monthly/` (when none this month), each pruned to `KEEP_*`.
+  - Due once the time has passed and today has none, so a missed backup runs at the next start. After a failure it retries hourly. A dump that fails the check is renamed `*.failed`.
+  - The service waits for a healthy backend, so it never dumps an unmigrated database. Its healthcheck fails when the last daily backup failed or is older than 26 hours.
+  - Files get the backups folder's owner and mode 600, since dumps hold password hashes. Compose bind-mounts `BACKUP_DIR` (default `./backups`), so `docker compose down -v` doesn't touch backups.
+- **Restore** (`deploy/restore.sh FILE|latest [--reports]`, `make restore`). It checks the file in the scratch database first, asks (or `YES=1`), stops the backend and frontend, and saves a `pre-restore/` backup. Then it runs `pg_restore --clean --single-transaction --exit-on-error`, so the restore is all or nothing, and with `--reports` it unpacks the matching reports archive through a one-off backend container. Finally it starts the backend and frontend again, even after a failure.
+- **Guards in the tests.** The backend suite refuses to run unless `TEST_DATABASE_URL` names a `*_test` database, because it downgrades to base and truncates every table. `tests/test_migrations.py` has three parts:
+  - A lint: `op.drop_table`, `op.drop_column`, `alter_column(type_=…)` and `DELETE`/`TRUNCATE`/`DROP` SQL in an `upgrade()` need a `# data-loss-ok: <why>` comment.
+  - The newest migration is run on the demo seed at the previous revision. Every table must keep its row count, and its values over the old columns.
+  - A failing dump blocks the migration.
+- **Not done yet (next):** deleting suites, sections and projects is open to every tester and API token and cascades to cases and their results. Plan: admins only, a trash with restore, and a change history for cases.

@@ -1,9 +1,10 @@
 # Convenience targets. Everything runs in Docker; no local Python/Node needed.
-.PHONY: up down logs admin seed test test-backend test-cli e2e junit-samples prod-up prod-admin backup
+.PHONY: up down logs admin seed test test-backend test-cli e2e junit-samples prod-up prod-admin backup backups backup-check restore
 
 PROD = docker compose -f docker-compose.yml -f docker-compose.prod.yml
 
-up:            ## build and start db + backend + frontend
+up:            ## build and start db + backend + frontend + daily backups
+	mkdir -p backups
 	docker compose up -d --build
 
 down:          ## stop (keeps the database volume)
@@ -53,13 +54,23 @@ runner-token:  ## print a new API token for the test runner
 	docker compose exec -T backend python -m app.manage create-agent-token --quiet
 
 prod-up:       ## production: HTTPS via Caddy (needs DOMAIN, SECRET_KEY, DB_PASSWORD in .env)
+	mkdir -p backups
 	$(PROD) up -d --build
 
 prod-admin:    ## production: create an admin account
 	$(PROD) exec backend python -m app.manage create-admin
 
-backup:        ## dump the database to ./backups
+backup:        ## a checked backup right now, into backups/manual (daily ones are made by the backup service)
 	./deploy/backup.sh
+
+backups:       ## list the backups
+	docker compose run --rm --no-deps -T backup sh /opt/backup/backup.sh list
+
+backup-check:  ## restore the newest daily backup into a scratch database and count its rows
+	docker compose run --rm --no-deps -T backup sh /opt/backup/backup.sh verify $(or $(FILE),latest)
+
+restore:       ## put a backup back: make restore FILE=latest (or a path under backups/); see deploy/restore.sh
+	./deploy/restore.sh $(or $(FILE),latest)
 
 junit-samples: ## regenerate real JUnit XML fixtures (pytest, Playwright, Surefire)
 	backend/tests/fixtures/junit/generators/generate.sh
