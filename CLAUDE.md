@@ -80,7 +80,7 @@ Everything runs in Docker. Node and npm are not installed on the host.
 - **Backups.** The `backup` service writes daily, checked backups to `./backups` (gitignored). Never delete that folder, and never run `docker compose down -v` on the dev project: its database may hold data that matters. Throwaway stacks get their own `-p` name and `BACKUP_DIR`.
 - **Adding an npm package:** `docker run … node:22-alpine npm install <pkg>@<exact version>` in `frontend/`.
 
-At the time of writing, all tests pass: backend about 168, CLI 45, e2e 14.
+At the time of writing, all tests pass: backend about 168, CLI 45, e2e 16.
 
 ## Verification (visual)
 

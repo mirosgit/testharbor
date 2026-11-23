@@ -477,3 +477,19 @@ Data must survive updates and mistakes. Before this phase there were no schedule
   - The newest migration is run on the demo seed at the previous revision. Every table must keep its row count, and its values over the old columns.
   - A failing dump blocks the migration.
 - **Not done yet (next):** deleting suites, sections and projects is open to every tester and API token and cascades to cases and their results. Plan: admins only, a trash with restore, and a change history for cases.
+
+## Adding cases to an existing run
+
+A case is sometimes forgotten when a run is created. `POST /api/runs/{id}/cases` (a `RunSelection`, open runs only; existing members are skipped) already existed, but the UI had no way to call it.
+
+- **UI.** The run page has **Add cases** (open runs only; also in the empty-run state). It opens `components/runs/add-cases-dialog.tsx`: a suite picker (when there are several), search over title, `C123` and tags, and the section tree with tri-state section check boxes and single cases. Cases already in the run are shown checked, disabled and marked "In run", and section counts say how many are addable. Suites up to 200 cases open expanded; larger ones start collapsed, and a search opens everything that matches.
+- **Running what was added.**
+  - The picker marks automated cases with a bot icon, and the footer counts picked and automated cases.
+  - **Add & run autotests** (shown when any picked case is automated) adds the cases, then opens Run autotests with **Just added** chosen. The plain **Add** shows a toast whose **Execute** opens the first added case in the execute sheet; "Save & next untested" moves on from there.
+  - Added cases are marked **New** on the page until it is reloaded.
+  - Run autotests on a run gains two scopes: **Just added** and **Untested cases** (no result yet). Both send explicit `case_ids`, so the backend needs no change.
+  - It also gains **Choose tests**, the Autotests page's catalog picker inside the dialog (search, With case / No case / All). The picked tests' cases are sent as `case_ids`, and the job endpoint adds them to the run when they aren't in it yet. After a start from a run, the dialog refreshes the run and its cases, so the cases show up at once.
+  - The picker refetches its cases on every opening, so a case that became automated or was added elsewhere shows correctly.
+- **Phone width.** The run header's actions wrap below the title instead of widening the page. Before, they pushed the stats card past the screen edge. In case rows, the title wraps on phones (it was cut to a letter or two), and the priority badge shows from `sm` up.
+- **Tests.** An e2e test creates a run with one case and adds a forgotten one through search. It checks the New mark and Execute from the toast. Then it adds an automated case with Add & run autotests and checks that the claimed job carries just that test's key. Finally it checks that a closed run offers no **Add cases**.
+

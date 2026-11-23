@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { api, ApiError } from "@/lib/api";
 import type { AutomationAgent, AutomationJob, JobStatus, RunParams } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { TestPicker } from "@/components/runs/test-picker";
 
 import {
   describeParams,
@@ -87,27 +88,41 @@ export function AgentStatus({ projectId }: { projectId: number }) {
   );
 }
 
-type Scope = "all" | "selected" | "failed";
+export type AutotestsScope = "all" | "selected" | "pick" | "added" | "untested" | "failed";
 
 export type AutotestsTarget =
   | { kind: "new"; caseIds?: number[] }
-  | { kind: "run"; runId: number; failedCount: number; selectedIds: number[] };
+  | {
+      kind: "run";
+      runId: number;
+      failedCount: number;
+      selectedIds: number[];
+      /** Cases just added to the run on this page. */
+      addedIds?: number[];
+      untestedIds?: number[];
+    };
 
 export function RunAutotestsDialog({
   open,
   onOpenChange,
   projectId,
   target,
+  initialScope,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   projectId: number;
   target: AutotestsTarget;
+  initialScope?: AutotestsScope;
 }) {
   const router = useRouter();
   const qc = useQueryClient();
   const selectedCount = target.kind === "new" ? (target.caseIds?.length ?? 0) : target.selectedIds.length;
-  const [scope, setScope] = useState<Scope>("all");
+  const addedIds = target.kind === "run" ? (target.addedIds ?? []) : [];
+  const untestedIds = target.kind === "run" ? (target.untestedIds ?? []) : [];
+  const [scope, setScope] = useState<AutotestsScope>("all");
+  // Tests picked from the agent's catalog ("Choose tests"); the ids are their cases.
+  const [picked, setPicked] = useState<Set<number>>(new Set());
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const runRef = useRef<HTMLButtonElement>(null);
@@ -123,7 +138,8 @@ export function RunAutotestsDialog({
   const [params, setParams] = useState<RunParams>({});
   useEffect(() => {
     if (!open) return;
-    setScope(selectedCount ? "selected" : "all");
+    setScope(initialScope ?? (selectedCount ? "selected" : "all"));
+    setPicked(new Set());
     setName(`Autotests ${new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -133,13 +149,34 @@ export function RunAutotestsDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, optionsKey, projectId]);
 
-  const options: { value: Scope; label: string; hint: string; show: boolean }[] = [
-    { value: "all", label: "All autotests", hint: "Runs the whole test suite", show: true },
+  const matched = "matched by their automation key or by C-ID in test titles or tags";
+  const options: { value: AutotestsScope; label: string; hint: string; show: boolean }[] = [
+    {
+      value: "added",
+      label: "Just added",
+      hint: `${addedIds.length} ${addedIds.length === 1 ? "case" : "cases"} you added to this run`,
+      show: addedIds.length > 0,
+    },
     {
       value: "selected",
       label: "Selected cases",
-      hint: `${selectedCount} cases, matched by their automation key or by C-ID in test titles or tags`,
+      hint: `${selectedCount} cases, ${matched}`,
       show: selectedCount > 0,
+    },
+    {
+      value: "pick",
+      label: "Choose tests",
+      hint:
+        target.kind === "run"
+          ? "Pick autotests from the agent's list; their cases join this run if they aren't in it"
+          : "Pick autotests from the agent's list",
+      show: true,
+    },
+    {
+      value: "untested",
+      label: "Untested cases",
+      hint: `${untestedIds.length} ${untestedIds.length === 1 ? "case" : "cases"} without a result yet`,
+      show: untestedIds.length > 0,
     },
     {
       value: "failed",
@@ -147,6 +184,7 @@ export function RunAutotestsDialog({
       hint: target.kind === "run" ? `${target.failedCount} cases` : "",
       show: target.kind === "run" && target.failedCount > 0,
     },
+    { value: "all", label: "All autotests", hint: "Runs the whole test suite", show: true },
   ];
 
   const start = async () => {
@@ -155,7 +193,16 @@ export function RunAutotestsDialog({
       const caseIds = target.kind === "new" ? (target.caseIds ?? []) : target.selectedIds;
       const job = await api.startAutotests(projectId, {
         ...(target.kind === "run" ? { run_id: target.runId } : { name: name.trim() || undefined }),
-        case_ids: scope === "selected" ? caseIds : [],
+        case_ids:
+          scope === "selected"
+            ? caseIds
+            : scope === "pick"
+              ? [...picked]
+              : scope === "added"
+                ? addedIds
+                : scope === "untested"
+                  ? untestedIds
+                  : [],
         only_failed: scope === "failed",
         params: runOptions.length ? params : {},
       });
@@ -163,6 +210,11 @@ export function RunAutotestsDialog({
       toast.success("Autotests queued");
       qc.invalidateQueries({ queryKey: ["autotest-jobs", projectId] });
       qc.invalidateQueries({ queryKey: ["runs", projectId] });
+      if (target.kind === "run") {
+        // Picked tests' cases join the run.
+        qc.invalidateQueries({ queryKey: ["run", target.runId] });
+        qc.invalidateQueries({ queryKey: ["run-cases", target.runId] });
+      }
       onOpenChange(false);
       if (target.kind === "new") router.push(`/projects/${projectId}/runs/${job.run_id}`);
     } catch (e) {
@@ -175,7 +227,10 @@ export function RunAutotestsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className={cn("max-h-[calc(100dvh-2rem)] overflow-y-auto", runOptions.length ? "sm:max-w-xl" : "sm:max-w-lg")}
+        className={cn(
+          "max-h-[calc(100dvh-2rem)] overflow-y-auto",
+          scope === "pick" ? "sm:max-w-2xl" : runOptions.length ? "sm:max-w-xl" : "sm:max-w-lg",
+        )}
         onOpenAutoFocus={(e) => {
           // Radix focuses (and selects) the first input; the primary action is the better start.
           e.preventDefault();
@@ -223,6 +278,15 @@ export function RunAutotestsDialog({
                 </label>
               ))}
           </fieldset>
+          {scope === "pick" && (
+            <TestPicker
+              projectId={projectId}
+              value={picked}
+              onChange={setPicked}
+              listClassName="max-h-72"
+              onSynced={() => qc.invalidateQueries({ queryKey: ["cases"] })}
+            />
+          )}
           {runOptions.length > 0 && (
             <RunOptionsForm options={runOptions} value={params} onChange={setParams} />
           )}
@@ -231,8 +295,9 @@ export function RunAutotestsDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button ref={runRef} onClick={start} disabled={busy}>
-            <Play /> {busy ? "Starting…" : "Run"}
+          <Button ref={runRef} onClick={start} disabled={busy || (scope === "pick" && picked.size === 0)}>
+            <Play />{" "}
+            {busy ? "Starting…" : scope === "pick" ? `Run ${picked.size} ${picked.size === 1 ? "test" : "tests"}` : "Run"}
           </Button>
         </DialogFooter>
       </DialogContent>
