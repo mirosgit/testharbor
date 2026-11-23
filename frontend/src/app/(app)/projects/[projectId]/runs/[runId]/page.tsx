@@ -13,7 +13,7 @@ import { Markdown } from "@/components/markdown";
 import { AddCasesDialog } from "@/components/runs/add-cases-dialog";
 import { ExecuteSheet } from "@/components/runs/execute-sheet";
 import { passRate, percentDone, RunProgress, StatusCounts } from "@/components/runs/progress";
-import { AutotestsPanel, RunAutotestsDialog } from "@/components/runs/autotests";
+import { AutotestsPanel, RunAutotestsDialog, type AutotestsScope } from "@/components/runs/autotests";
 import { ReportUrlDialog } from "@/components/runs/report-url-dialog";
 import { CiMeta, ReportLink, RunSourceBadge, timeAgo } from "@/components/runs/run-meta";
 import { SortMenu, type SortOption, type SortState } from "@/components/sort-menu";
@@ -81,6 +81,13 @@ function RunView() {
   const [sort, setSort] = useState<SortState<RunCaseSort>>({ sort: "manual", order: "asc" });
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [dialog, setDialog] = useState<"edit" | "delete" | "report" | "autotests" | "add" | null>(null);
+  // Cases added on this page: marked "New", and offered to autotests as "Just added".
+  const [addedIds, setAddedIds] = useState<number[]>([]);
+  const [autotestsScope, setAutotestsScope] = useState<AutotestsScope | undefined>();
+  const openAutotests = (scope?: AutotestsScope) => {
+    setAutotestsScope(scope);
+    setDialog("autotests");
+  };
   const isAdmin = useIsAdmin();
 
   const openCaseId = search.get("case") ? Number(search.get("case")) : null;
@@ -209,7 +216,7 @@ function RunView() {
                 </Button>
               )}
               {!run.closed && (
-                <Button variant="outline" size="sm" onClick={() => setDialog("autotests")}>
+                <Button variant="outline" size="sm" onClick={() => openAutotests()}>
                   <Bot /> Run autotests
                 </Button>
               )}
@@ -385,9 +392,17 @@ function RunView() {
                         onClick={() => setOpenCase(c.case_id)}
                         className="flex min-w-0 flex-1 items-center gap-3 text-left"
                       >
-                        <span className="w-14 shrink-0 font-mono text-xs text-muted-foreground">{c.key}</span>
+                        <span className="w-12 shrink-0 font-mono text-xs text-muted-foreground sm:w-14">{c.key}</span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate">{c.title}</span>
+                          {/* Phones wrap the title instead of cutting it to a letter or two. */}
+                          <span className="flex flex-wrap items-center gap-x-1.5 sm:flex-nowrap">
+                            <span className="min-w-0 break-words sm:truncate">{c.title}</span>
+                            {addedIds.includes(c.case_id) && (
+                              <span className="shrink-0 rounded bg-primary/10 px-1.5 py-px text-[11px] font-medium text-primary">
+                                New
+                              </span>
+                            )}
+                          </span>
                           {c.last_result?.error_message ? (
                             <span className="block truncate font-mono text-xs text-status-failed">
                               {c.last_result.error_message}
@@ -399,7 +414,7 @@ function RunView() {
                         {c.result_count > 1 && (
                           <span className="shrink-0 text-xs text-muted-foreground">{c.result_count} results</span>
                         )}
-                        <PriorityBadge priority={c.priority} className="w-16 shrink-0 justify-center" />
+                        <PriorityBadge priority={c.priority} className="hidden w-16 shrink-0 justify-center sm:inline-flex" />
                         <AutomationIcon status={c.automation_status} />
                       </button>
                       <span className="flex w-5 shrink-0 justify-center">
@@ -451,13 +466,34 @@ function RunView() {
             projectId={projectId}
             runId={runId}
             inRun={new Set(all.map((c) => c.case_id))}
-            onAdded={invalidate}
+            onAdded={(ids, runAutotests) => {
+              invalidate();
+              setAddedIds(ids);
+              const n = `${ids.length} ${ids.length === 1 ? "case" : "cases"}`;
+              if (runAutotests) {
+                toast.success(`Added ${n} to the run`);
+                openAutotests("added");
+              } else {
+                toast.success(`Added ${n} to the run`, {
+                  description: "They are marked New and wait as Untested.",
+                  action: { label: "Execute", onClick: () => setOpenCase(ids[0]) },
+                });
+              }
+            }}
           />
           <RunAutotestsDialog
             open={dialog === "autotests"}
             onOpenChange={(o) => !o && setDialog(null)}
             projectId={projectId}
-            target={{ kind: "run", runId, failedCount: run.stats.failed, selectedIds: [...selected] }}
+            initialScope={autotestsScope}
+            target={{
+              kind: "run",
+              runId,
+              failedCount: run.stats.failed,
+              selectedIds: [...selected],
+              addedIds,
+              untestedIds: all.filter((c) => c.status === "untested").map((c) => c.case_id),
+            }}
           />
           <ReportUrlDialog
             open={dialog === "report"}

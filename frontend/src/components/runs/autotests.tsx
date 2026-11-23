@@ -87,27 +87,39 @@ export function AgentStatus({ projectId }: { projectId: number }) {
   );
 }
 
-type Scope = "all" | "selected" | "failed";
+export type AutotestsScope = "all" | "selected" | "added" | "untested" | "failed";
 
 export type AutotestsTarget =
   | { kind: "new"; caseIds?: number[] }
-  | { kind: "run"; runId: number; failedCount: number; selectedIds: number[] };
+  | {
+      kind: "run";
+      runId: number;
+      failedCount: number;
+      selectedIds: number[];
+      /** Cases just added to the run on this page. */
+      addedIds?: number[];
+      untestedIds?: number[];
+    };
 
 export function RunAutotestsDialog({
   open,
   onOpenChange,
   projectId,
   target,
+  initialScope,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   projectId: number;
   target: AutotestsTarget;
+  initialScope?: AutotestsScope;
 }) {
   const router = useRouter();
   const qc = useQueryClient();
   const selectedCount = target.kind === "new" ? (target.caseIds?.length ?? 0) : target.selectedIds.length;
-  const [scope, setScope] = useState<Scope>("all");
+  const addedIds = target.kind === "run" ? (target.addedIds ?? []) : [];
+  const untestedIds = target.kind === "run" ? (target.untestedIds ?? []) : [];
+  const [scope, setScope] = useState<AutotestsScope>("all");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const runRef = useRef<HTMLButtonElement>(null);
@@ -123,7 +135,7 @@ export function RunAutotestsDialog({
   const [params, setParams] = useState<RunParams>({});
   useEffect(() => {
     if (!open) return;
-    setScope(selectedCount ? "selected" : "all");
+    setScope(initialScope ?? (selectedCount ? "selected" : "all"));
     setName(`Autotests ${new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -133,13 +145,25 @@ export function RunAutotestsDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, optionsKey, projectId]);
 
-  const options: { value: Scope; label: string; hint: string; show: boolean }[] = [
-    { value: "all", label: "All autotests", hint: "Runs the whole test suite", show: true },
+  const matched = "matched by their automation key or by C-ID in test titles or tags";
+  const options: { value: AutotestsScope; label: string; hint: string; show: boolean }[] = [
+    {
+      value: "added",
+      label: "Just added",
+      hint: `${addedIds.length} ${addedIds.length === 1 ? "case" : "cases"} you added to this run`,
+      show: addedIds.length > 0,
+    },
     {
       value: "selected",
       label: "Selected cases",
-      hint: `${selectedCount} cases, matched by their automation key or by C-ID in test titles or tags`,
+      hint: `${selectedCount} cases, ${matched}`,
       show: selectedCount > 0,
+    },
+    {
+      value: "untested",
+      label: "Untested cases",
+      hint: `${untestedIds.length} cases without a result yet`,
+      show: untestedIds.length > 0,
     },
     {
       value: "failed",
@@ -147,6 +171,7 @@ export function RunAutotestsDialog({
       hint: target.kind === "run" ? `${target.failedCount} cases` : "",
       show: target.kind === "run" && target.failedCount > 0,
     },
+    { value: "all", label: "All autotests", hint: "Runs the whole test suite", show: true },
   ];
 
   const start = async () => {
@@ -155,7 +180,8 @@ export function RunAutotestsDialog({
       const caseIds = target.kind === "new" ? (target.caseIds ?? []) : target.selectedIds;
       const job = await api.startAutotests(projectId, {
         ...(target.kind === "run" ? { run_id: target.runId } : { name: name.trim() || undefined }),
-        case_ids: scope === "selected" ? caseIds : [],
+        case_ids:
+          scope === "selected" ? caseIds : scope === "added" ? addedIds : scope === "untested" ? untestedIds : [],
         only_failed: scope === "failed",
         params: runOptions.length ? params : {},
       });

@@ -62,7 +62,30 @@ test("a forgotten case is added to an existing run", async ({ page }) => {
 
   await expect(dialog).toBeHidden();
   await expect(page.getByText("executed (0/2)")).toBeVisible();
-  await expect(page.getByTestId("run-case-row").filter({ hasText: "Logout works" })).toHaveCount(1);
+  const added = page.getByTestId("run-case-row").filter({ hasText: "Logout works" });
+  await expect(added).toContainText("New");
+  // The toast offers to execute it right away.
+  await page.getByRole("button", { name: "Execute" }).click();
+  await expect(page.getByTestId("execute-sheet")).toContainText("Logout works");
+  await page.keyboard.press("Escape");
+
+  // An automated case can be added and run with autotests in one go.
+  await page.request.patch(`/api/cases/${cases[2].id}`, {
+    data: { automation_status: "automated", automation_key: "t::signup" },
+  });
+  await page.getByTestId("add-cases").click();
+  await dialog.getByText("Signup works").click();
+  await expect(dialog.getByTestId("add-cases-summary")).toContainText("1 picked · 1 automated");
+  await dialog.getByTestId("add-cases-run").click();
+  await expect(page.getByRole("radio", { name: /Just added/ })).toBeChecked();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
+  const job = await (
+    await page.request.post(`/api/projects/${project.id}/automation/claim`, { data: { agent: "e2e-box" } })
+  ).json();
+  expect(job.run_id).toBe(run.id);
+  expect(job.automation_keys).toEqual(["t::signup"]);
+  expect((await page.request.post(`/api/automation/jobs/${job.id}/cancel`)).ok()).toBeTruthy();
+
   // Closed runs can't take more cases.
   await page.getByRole("button", { name: "Close run" }).click();
   await expect(page.getByTestId("add-cases")).toHaveCount(0);

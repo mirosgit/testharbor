@@ -1,7 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Search } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Bot, ChevronRight, Play, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -39,20 +39,24 @@ export function AddCasesDialog({
   projectId: number;
   runId: number;
   inRun: Set<number>;
-  onAdded: () => void;
+  /** The added cases' ids in tree order, and whether to run them with autotests next. */
+  onAdded: (caseIds: number[], runAutotests: boolean) => void;
 }) {
   const [suiteId, setSuiteId] = useState<number | undefined>();
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [toggled, setToggled] = useState<Set<number>>(new Set());
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"add" | "run" | null>(null);
 
+  const qc = useQueryClient();
   useEffect(() => {
     if (!open) return;
+    // Fresh each time: cases may have been added or changed since the last opening.
+    qc.invalidateQueries({ queryKey: ["add-cases", projectId] });
     setQ("");
     setPicked(new Set());
     setToggled(new Set());
-  }, [open]);
+  }, [open, qc, projectId]);
 
   const { data: suites = [] } = useQuery({
     queryKey: ["suites", projectId],
@@ -114,17 +118,19 @@ export function AddCasesDialog({
       return n;
     });
 
-  const submit = async () => {
-    setBusy(true);
+  const pickedAutomated = all.filter((c) => picked.has(c.id) && c.automation_status === "automated").length;
+
+  const submit = async (runAutotests: boolean) => {
+    setBusy(runAutotests ? "run" : "add");
     try {
-      await api.addRunCases(runId, { case_ids: [...picked] });
-      toast.success(`Added ${picked.size} ${picked.size === 1 ? "case" : "cases"} to the run`);
-      onAdded();
-      onOpenChange(false);
+      const ids = all.filter((c) => picked.has(c.id)).map((c) => c.id); // tree order
+      await api.addRunCases(runId, { case_ids: ids });
+      onOpenChange(false); // first: onAdded may open the next dialog
+      onAdded(ids, runAutotests);
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not add the cases");
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -231,6 +237,9 @@ export function AddCasesDialog({
                                   onCheckedChange={(v) => set([c], v === true)}
                                 />
                                 <span className="min-w-0 flex-1 break-words">{c.title}</span>
+                                {c.automation_status === "automated" && (
+                                  <Bot className="mt-0.5 size-3.5 shrink-0 text-primary" aria-label="Automated" />
+                                )}
                                 {already && <span className="shrink-0 text-xs">In run</span>}
                                 <span className="shrink-0 font-mono text-xs text-muted-foreground">{c.key}</span>
                               </label>
@@ -246,19 +255,36 @@ export function AddCasesDialog({
           )}
         </div>
         <DialogFooter className="items-center gap-2 sm:justify-between">
-          {picked.size > 0 ? (
-            <button type="button" className="text-xs text-muted-foreground hover:underline" onClick={() => setPicked(new Set())}>
-              Clear the selection
-            </button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
+          <div className="text-xs text-muted-foreground" data-testid="add-cases-summary">
+            {picked.size > 0 ? (
+              <>
+                {picked.size} picked
+                {pickedAutomated > 0 && ` · ${pickedAutomated} automated`} ·{" "}
+                <button type="button" className="hover:underline" onClick={() => setPicked(new Set())}>
+                  clear
+                </button>
+              </>
+            ) : (
+              "Pick cases or whole sections"
+            )}
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button onClick={submit} disabled={busy || picked.size === 0} data-testid="add-cases-submit">
-              {busy ? "Adding…" : picked.size ? `Add ${picked.size} ${picked.size === 1 ? "case" : "cases"}` : "Add cases"}
+            {pickedAutomated > 0 && (
+              <Button
+                variant="outline"
+                onClick={() => submit(true)}
+                disabled={!!busy}
+                data-testid="add-cases-run"
+                title="Add them, then run the automated ones with autotests"
+              >
+                <Play /> {busy === "run" ? "Adding…" : "Add & run autotests"}
+              </Button>
+            )}
+            <Button onClick={() => submit(false)} disabled={!!busy || picked.size === 0} data-testid="add-cases-submit">
+              {busy === "add" ? "Adding…" : picked.size ? `Add ${picked.size} ${picked.size === 1 ? "case" : "cases"}` : "Add cases"}
             </Button>
           </div>
         </DialogFooter>
